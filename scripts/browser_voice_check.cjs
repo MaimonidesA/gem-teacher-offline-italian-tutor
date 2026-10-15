@@ -1,0 +1,30 @@
+const fs=require('fs');
+const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
+(async()=>{
+  const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH,args:['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream','--use-file-for-fake-audio-capture=/tmp/parliamo-validation-padded.wav']});
+  const page=await browser.newPage({permissions:['microphone'],viewport:{width:1440,height:1000}});
+  const errors=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.goto(process.env.PARLIAMO_TEST_URL||'http://127.0.0.1:8766');await page.getByRole('heading',{name:/on s’y met/}).waitFor();
+  await page.evaluate(async()=>{await api('/api/settings',{auto_speak:false,target:'it'});await refresh();});
+  await page.locator('[data-topic="hello"]').click();await page.waitForFunction(()=>!state.busy&&state.session?.messages.length>0,{},{timeout:60000});
+  await page.locator('#handsfree').check();
+  await page.waitForFunction(()=>state.recorder?.node,{},{timeout:15000});
+  await page.waitForFunction(()=>state.busy,{},{timeout:30000});
+  // Disable automatic reopening while the detected utterance is being answered.
+  await page.locator('#handsfree').uncheck();
+  await page.waitForFunction(()=>!state.busy&&state.session.turns===1,{},{timeout:60000});
+  const result=await page.evaluate(()=>state.lastResult);
+  if(!result.assessment||!Number.isInteger(result.assessment.rating))throw new Error('Voice phrase feedback missing');
+  if(result.segments.some(s=>s.language!=='it'))throw new Error('Unrequested spoken translation in voice reply');
+  if(!result.heard.toLowerCase().includes('giulia'))throw new Error('Automatic voice turn lost the transcript');
+  await page.locator('[data-action="save-phrase"]').click();await page.locator('#word-text').fill('Vorrei un caffè, per favore.');
+  await page.getByRole('button',{name:'Traduire cette expression avec Sofia'}).click();
+  await page.waitForFunction(()=>document.querySelector('#word-translation').value.toLowerCase().includes('café'),{},{timeout:60000});
+  const translations=await page.evaluate(()=>({fr:document.querySelector('#word-translation').value,en:document.querySelector('#word-english').value}));
+  if(!translations.en.toLowerCase().includes('coffee'))throw new Error('English translation missing');
+  await page.locator('.modal-close').click();
+  await page.screenshot({path:'artifacts/conversation-final.png',fullPage:true});
+  const report={automaticVoice:true,transcript:result.heard,metrics:result.metrics,assessment:result.assessment,translations,errors};
+  fs.writeFileSync('artifacts/voice-ui-validation.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report));
+  await browser.close();if(errors.length)process.exitCode=1;
+})().catch(error=>{console.error(error);process.exit(1);});

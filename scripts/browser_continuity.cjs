@@ -1,0 +1,57 @@
+/* Run against the isolated continuity profile on port 8767, after live checks. */
+const fs=require('fs'),assert=require('assert/strict');
+const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
+(async()=>{
+  const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH});
+  const page=await browser.newPage({viewport:{width:1440,height:1050}}),errors=[],external=[],speech=[];
+  page.on('pageerror',e=>errors.push(e.message));
+  page.on('request',r=>{if(!r.url().startsWith('http://127.0.0.1:8767')&&!r.url().startsWith('blob:'))external.push(r.url());if(r.url().endsWith('/api/speech'))speech.push(r.postDataJSON());});
+  const report=JSON.parse(fs.readFileSync('artifacts/continuity-live.json'));
+  await page.goto('http://127.0.0.1:8767');await page.getByRole('heading',{name:/on s’y met/}).waitFor();
+  await page.evaluate(id=>resumeLesson(id),report.session_id);
+  assert(await page.locator('#lesson-milestone').isVisible());
+  assert(await page.locator('#chat-input').isEnabled());
+  assert(await page.locator('.phrase-feedback').count()>=4);
+  assert(await page.locator('.corrected-phrase').count()>=1);
+  assert(await page.locator('#teacher-notes').innerText());
+  await page.locator('[data-translation][data-language="fr"]').last().click();
+  await page.waitForFunction(()=>!state.translating&&document.querySelector('.requested-translation.visible'));
+  await page.waitForFunction(()=>!audioPlayer.active,{},{timeout:60000});
+  assert.equal(speech.at(-1).language,'fr');
+  assert.equal(await page.locator('.requested-translation.visible').last().innerText(),`FR · ${speech.at(-1).text}`);
+  await page.locator('[data-translation][data-language="en"]').last().click();
+  await page.waitForFunction(()=>!state.translating);
+  await page.waitForFunction(()=>!audioPlayer.active,{},{timeout:60000});
+  assert.equal(speech.at(-1).language,'en');
+  // Capture autoplay decisions while exercising the actual streaming/UI handler.
+  await page.evaluate(()=>{window.played=[];audioPlayer.enqueue=segment=>played.push(segment);state.data.settings.auto_speak=true;state.data.settings.auto_translate=false;state.session.finished=null;renderConversation();});
+  const session=await page.evaluate(()=>structuredClone(state.session));
+  const result={segments:[{language:'it',kind:'dialogue',text:'Che cosa ti piace cucinare?'},{language:'fr',kind:'translation',text:'Qu’aimes-tu cuisiner ?'},{language:'fr',kind:'instruction',text:'Pensez à utiliser le verbe piacere.'}],assessment:{rating:5,verdict:'correct',clarity:'clear',praise:'Votre phrase est naturelle.',corrected:'',explanation:''},phrase:{text:'Mi piace cucinare.',translation:'J’aime cuisiner.',english:'I like cooking.'},memory:{summary:'La cuisine italienne.',next_step:'Décrire sa recette.',facts:[],strengths:['Exprimer un goût'],practice:[]},action:'reply',score:3};
+  const updated={...session,finished:new Date().toISOString(),phase:'conversation',turns:session.turns+1,notes:result.memory,messages:[...session.messages,{id:'qa-user',role:'user',content:'Mi piace cucinare.',payload:{assessment:result.assessment}},{id:'qa-assistant',role:'assistant',payload:result}]};
+  await page.route('**/api/turn',route=>route.fulfill({contentType:'application/x-ndjson',body:[...result.segments.map(segment=>({type:'segment',segment})),{type:'done',result,session:updated,message_id:'qa-assistant',xp:10,just_completed:true}].map(v=>JSON.stringify(v)).join('\n')+'\n'}));
+  await page.locator('#chat-input').fill('Mi piace cucinare.');await page.locator('#chat-input').press('Enter');
+  await page.waitForFunction(()=>!state.busy&&state.session.messages.at(-1).id==='qa-assistant');
+  assert.deepEqual(await page.evaluate(()=>played.map(s=>s.kind)),['dialogue','instruction']);
+  assert(await page.locator('#lesson-milestone').isVisible());assert(await page.locator('#chat-input').isEnabled());
+  assert.match(await page.locator('[data-message="qa-user"] .phrase-feedback').innerText(),/5\/5/);
+  await page.locator('[data-replay="qa-assistant"]').click();
+  assert.deepEqual(await page.evaluate(()=>played.map(s=>s.kind)),['dialogue','instruction','dialogue','instruction']);
+  await page.locator('[data-message="qa-assistant"] [data-segment-play][data-index="1"]').click();
+  assert.equal(await page.evaluate(()=>played.at(-1).kind),'translation');
+  // Manual completion also bridges into chat, with no blocking completion dialog.
+  await page.evaluate(()=>{state.session.finished=null;renderConversation();});
+  await page.route('**/api/finish',route=>route.fulfill({json:updated}));
+  await page.locator('#finish-button').click();await page.waitForFunction(()=>!state.busy&&state.session.finished);
+  assert(await page.locator('#chat-input').isEnabled());assert.equal(await page.locator('#modal').evaluate(e=>e.open),false);
+  await page.unroute('**/api/turn');await page.unroute('**/api/finish');
+  await page.reload();await page.getByRole('heading',{name:/on s’y met/}).waitFor();await page.evaluate(id=>resumeLesson(id),report.session_id);
+  assert(await page.locator('#chat-input').isEnabled());assert(await page.locator('.phrase-feedback').count()>=4);
+  await page.waitForFunction(()=>{const m=document.querySelector('#messages');return m.scrollTop>=m.scrollHeight-m.clientHeight-3;});await page.screenshot({path:'artifacts/continuity-desktop.png',fullPage:true,animations:'disabled'});
+  await page.setViewportSize({width:390,height:844});await page.screenshot({path:'artifacts/continuity-mobile.png',fullPage:true});
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  await page.locator('.sidebar [data-view="settings"]:visible').click();
+  assert.equal(await page.locator('[name="auto_translate"]').isChecked(),false);assert.equal(await page.locator('[name="humor"]').isChecked(),true);
+  assert.deepEqual(errors,[]);assert.deepEqual(external,[]);
+  console.log(JSON.stringify({passed:true,errors,external,speechLanguages:speech.map(s=>s.language)}));
+  await browser.close();
+})().catch(e=>{console.error(e);process.exit(1)});

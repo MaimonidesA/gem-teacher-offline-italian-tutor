@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#fcfbf7">
+  <meta name="description" content="Votre professeur d’italien personnel. Conversations, découvertes et petits progrès, entièrement sur votre ordinateur.">
+  <title>Gem Teacher · Parliamo</title>
+  <link rel="icon" href="/app-icon.svg" type="image/svg+xml">
+  <link rel="icon" href="/app-icon.png" type="image/png" sizes="256x256">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/i18n.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="#learn" aria-label="Parliamo, accueil"><img src="/icon.svg" alt=""><span>parliamo<span class="brand-dot">.</span></span></a>
+    <div class="brand-caption">LE MONDE COMMENCE PAR UN MOT</div>
+    <nav aria-label="Navigation principale">
+      <button class="nav-item active" data-view="learn"><span data-icon="path"></span>Mon parcours</button>
+      <button class="nav-item" data-view="conversation"><span data-icon="chat"></span>Conversation<span class="nav-dot"></span></button>
+      <button class="nav-item" data-view="coffee" aria-label="Le salon café"><span data-icon="coffee"></span>Le salon café</button>
+      <button class="nav-item" data-view="notebook"><span data-icon="bookmark"></span>Mon carnet<span id="book-count" class="nav-count">0</span></button>
+      <button class="nav-item" data-view="progress"><span data-icon="chart"></span>Mes progrès</button>
+      <button class="nav-item mobile-preferences" data-view="settings" aria-label="Mes préférences"><span data-icon="settings"></span></button>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="little-note"><span class="little-star">✳</span><p>Pas besoin d’être parfait.<br><strong>Il suffit de commencer.</strong></p></div>
+      <button class="nav-item" data-view="settings"><span data-icon="settings"></span>Mes préférences</button>
+      <button class="profile" data-action="profiles" aria-label="Changer de profil"><span class="profile-avatar" data-profile-initial data-verbatim>M</span><span><strong data-profile-name data-verbatim>Mon profil</strong><small>Changer de profil</small></span><span data-icon="arrow"></span></button>
+    </div>
+  </aside>
+  <div class="main-shell">
+    <header class="topbar">
+      <div class="breadcrumb">MON ESPACE <span>/</span> <b id="page-label">MON PARCOURS</b></div>
+      <div class="top-actions">
+        <button class="profile-switch" data-action="profiles" aria-label="Changer de profil"><span class="profile-avatar" data-profile-initial data-verbatim>M</span><span data-profile-name data-verbatim>Mon profil</span><span class="profile-chevron">⌄</span></button>
+        <label class="support-picker"><span>Langue d’appui</span><select id="support-language" aria-label="Langue d’appui"><option value="fr">Français</option><option value="en">English</option></select></label>
+        <div class="language-picker"><span id="target-flag">🇮🇹</span><select id="target-language" aria-label="Langue à apprendre"><option value="it">Italiano</option><option value="fr">Français</option><option value="en">English</option></select><span class="chevron">⌄</span></div>
+        <span class="top-divider"></span><span class="streak-pill" title="Jours consécutifs de pratique"><span data-icon="flame"></span><b id="streak">0</b><span>jour</span></span>
+      </div>
+    </header>
+    <main id="app" tabindex="-1"><div class="loading-screen"><img src="/icon.svg" alt=""><p>Votre petit coin d’Italie se prépare…</p></div></main>
+    <footer><span><i class="status-dot" id="status-dot"></i><span id="status-text">Connexion au professeur local…</span></span><span>Un mot après l’autre. <span class="footer-flower">✳</span></span></footer>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <dialog id="modal"><div id="modal-content"></div><button class="modal-close icon-button" aria-label="Fermer">×</button></dialog>
+</body>
+</html>
