@@ -84,8 +84,8 @@ The original browser/terminal launchers are also available:
 ./stop_teacher.sh        # stops only Parliamo and its speech worker
 ```
 
-Open **http://127.0.0.1:8765**. The application is bound to loopback; it is not
-published or exposed to your network. A recent Chromium-based browser is
+Open **http://127.0.0.1:8765**. By default, the application is bound to loopback.
+Optional Wi-Fi sharing is described below. A recent Chromium-based browser is
 recommended for microphone capture. Grant microphone permission when you want
 to speak. The app also works with typed replies.
 
@@ -101,6 +101,56 @@ python3 scripts/launcher.py status
 The existing system Ollama service must be running on `127.0.0.1:11434`.
 No API key, online account, Python package installation, JavaScript build, CDN,
 or internet connection is required to run the prepared project.
+
+## Use your phone on the same Wi-Fi
+
+On the computer, enable the saved LAN setting:
+
+```bash
+./stop_teacher.sh
+./start_teacher.sh --lan --no-browser
+```
+
+Open **Preferences → On my phone** on the computer and enter the displayed
+setup address in your phone's browser. It looks like
+`http://COMPUTER_WIFI_IP:8765/phone.html`. The setup page explains how to download
+and trust this computer's **Gem Teacher Local CA** certificate on iPhone/iPad or
+Android. This is a one-time step on each phone. Then open and bookmark the secure
+address shown there, `https://COMPUTER_WIFI_IP:9443`, choose your profile, and allow
+the microphone. Typing, recordings, hands-free conversation and local speech use
+the same backend as the desktop. If the browser blocks playback, **Tap to listen**
+resumes the prepared audio.
+
+The HTTP desktop address remains available. Phone microphone capture needs a
+trusted HTTPS origin; simply bypassing a certificate warning is not the setup.
+See [MDN's microphone requirements](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia),
+[Apple's certificate trust instructions](https://support.apple.com/102390) and
+[Google's certificate installation instructions](https://support.google.com/pixelphone/answer/2844832).
+
+Wi-Fi sharing uses Linux `ip` and `openssl`, creates its certificates locally,
+and contacts no certificate service. The private CA and keys stay under ignored
+`data/tls/` with restricted file permissions. Keep that folder in private backups
+to preserve existing phone trust. If the computer's Wi-Fi IP changes, restart the
+teacher; its server certificate renews for the new address while retaining the
+same CA. The setup address and secure address in Preferences update at startup.
+
+Only the local Wi-Fi/Ethernet subnets are accepted; VPN and virtual-network
+interfaces are excluded. Host and Origin checks still apply. Profiles are shared
+with devices on that network, without account passwords. No router port forwarding
+is needed. Keep the computer awake and both devices on the same non-guest Wi-Fi.
+If a host firewall is enabled, allow TCP 8765 and 9443 from your Wi-Fi subnet.
+
+Both listeners run in one process, sharing one speech worker and the same Ollama
+model. No second model or extra GPU allocation is created. Model calls are
+serialized, so a second device waits or receives a busy message while the first
+is generating; it does not compete with another teacher generation. Wi-Fi adds
+transport latency, which depends on the network. A microphone selection saved on
+the desktop falls back to the phone's default microphone if that device is absent.
+
+To return to computer-only access, stop the service and run
+`./start_teacher.sh --localhost`. `--lan`/`--localhost` are remembered in
+`data/network.json`; `PARLIAMO_LAN=1` and `PARLIAMO_HTTPS_PORT` provide process-level
+overrides for isolated testing. Neither mode exposes the Ollama service itself.
 
 ## Local learner profiles
 
@@ -152,6 +202,10 @@ time, as before.
   phrases receive 5/5. Replay a correction using its speaker button. Scores are
   model estimates based on the typed phrase or audio transcript, not acoustic
   pronunciation measurements. Historical replies without ratings stay unrated.
+  **Explanation EN / Explication EN** reads the feedback explanation in English.
+  French explanations are translated locally on demand and cached with that
+  learner's message; English explanations play directly. The score and progress
+  do not change when listening, and the original written feedback stays intact.
 - **Le fil avec Sofia** shows a compact summary, strengths, points to revisit and
   a next practice step. Notes carry into later lessons and update as you talk.
   Resume completed lessons directly from the home page or progress history.
@@ -200,6 +254,11 @@ translation also displayed. Translations are cached locally. Automatic translati
 playback is off initially and can be enabled in preferences. Replaying Sofia also
 respects this setting; the small language speaker button plays a selected segment
 explicitly.
+
+**Slow IT / IT lent** repeats the original Italian sentence with slower local
+speech synthesis. It is also available beside corrected Italian phrases. This
+does not change the voice-speed preference, score or conversation. The ordinary
+Italian replay and French/English translation buttons remain available.
 
 ```text
 microphone → local 16 kHz mono WAV → Gemma native audio input
@@ -294,7 +353,8 @@ The complete lifetime transcript is never loaded into the model. Speech output
 is cached locally. Browser localStorage remembers the selected profile and each
 profile's last session ID; sessionStorage keeps drafts when switching profiles.
 HTTP requests to Ollama bypass proxy environment variables;
-cloud models and non-loopback application requests are rejected.
+cloud models are rejected. Application requests are limited to loopback or the
+explicitly enabled LAN interfaces, with matching Host and Origin checks.
 
 Use **Exporter mes données** for a portable JSON export of the current learner,
 including their profile name and ID. The original profile stays in
@@ -334,6 +394,15 @@ existing chats, preferences, draft preservation and mobile layout.
 Profile checks use an empty isolated data directory on port 8770:
 `node scripts/browser_profiles.cjs` checks three learners, account switching,
 separate memories/progress/preferences, exports, multiple windows and mobile layout.
+Phone validation uses isolated HTTP port 8771 and HTTPS port 9444 with
+`PARLIAMO_DATA=/tmp/parliamo-phone-validation PARLIAMO_PORT=8771 PARLIAMO_HTTPS_PORT=9444 ./start_teacher.sh --lan --no-browser`.
+`scripts/browser_phone.cjs` exercises slower Italian replay, English explanation
+audio, blocked-playback recovery, layouts from 320 to 1440 pixels, and a synthetic
+HTTPS microphone conversation. It expects a synthetic input WAV at
+`/tmp/parliamo-phone-microphone.wav`. Browser certificate errors are ignored only
+in this isolated browser test; certificate-chain and IP validation are checked
+separately using the generated CA with a verifying TLS client. Real phones must
+complete the trust steps themselves.
 Reports/screenshots are saved under ignored `artifacts/`.
 
 ## Technical references and attribution

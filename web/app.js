@@ -171,6 +171,10 @@ function renderSettings() {
     <button class="button" type="submit">Enregistrer mes préférences ${icon('check')}</button></form>
     <aside><section class="panel"><div class="panel-title"><h3>Tout se passe ici.</h3>${icon('lock')}</div><dl class="system-list"><div><dt>Professeur</dt><dd>${h?.online?'Disponible':'À vérifier'}</dd></div><div><dt>Calcul du modèle</dt><dd>${esc(h?.placement||'En attente')}</dd></div><div><dt>Mémoire GPU du modèle</dt><dd>${h?.vram_mb?`${h.vram_mb} Mo`:'Non chargé'}</dd></div><div><dt>Audio natif</dt><dd>${h?.audio?'Pris en charge':'Indisponible'}</dd></div><div><dt>Voix Piper</dt><dd>CPU · local</dd></div><div><dt>Whisper</dt><dd>${h?.whisper?'Installé · CPU':'Non installé'}</dd></div><div><dt>Stockage</dt><dd>SQLite · cet ordinateur</dd></div></dl><div class="privacy-note"><strong>Vos mots vous appartiennent.</strong>Conversations, progrès et carnet sont enregistrés ici. Les enregistrements du micro sont traités en mémoire ; ils ne sont pas conservés. Aucun service de reconnaissance vocale du navigateur n’est utilisé.</div><div class="settings-actions"><button class="button secondary small" data-action="diagnostic">Vérifier</button><button class="button secondary small" data-action="warmup">Préparer Sofia</button></div></section><section class="panel" style="margin-top:20px"><h3>La suite de votre apprentissage</h3><p class="subtle" style="margin:12px 0">Exportez vos conversations, corrections, consignes et retours pour une sauvegarde ou pour préparer de meilleures leçons avec un futur modèle.</p><button class="text-button" data-action="export">${icon('download')} Exporter toutes mes données</button></section></aside></div>`;
   $('#settings-form').addEventListener('submit',saveSettings);
+  const panel=document.createElement('section');panel.className='panel phone-panel';
+  const network=state.data.network;
+  panel.innerHTML=`<h3>Sur mon téléphone</h3><p>Même Wi-Fi, même professeur, mêmes profils.</p>${network?.enabled&&network.urls.length?`<p>Installez une fois le certificat local sur le téléphone pour parler avec Sofia.</p>${network.setup_urls.map(url=>`<a class="phone-link" href="${esc(url)}" target="_blank" rel="noreferrer" data-verbatim>${esc(url)}</a>`).join('')}<small>Adresse pour les conversations avec le microphone :</small>${network.urls.map(url=>`<a class="phone-link" href="${esc(url)}" target="_blank" rel="noreferrer" data-verbatim>${esc(url)}</a>`).join('')}<p>Un seul modèle est partagé. Les appareils de ce Wi-Fi peuvent accéder aux profils.</p>`:'<p>Sur l’ordinateur, arrêtez le service puis lancez <code>./start_teacher.sh --lan</code> pour activer le partage Wi-Fi.</p>'}`;
+  $('.settings-grid>aside').prepend(panel);
 }
 async function saveSettings(event) {
   event.preventDefault(); const form=event.target, raw=new FormData(form), data=Object.fromEntries(raw);
@@ -251,7 +255,7 @@ function assessmentHtml(assessment, id) {
   if(!assessment)return '';
   const verdicts={correct:'Très bien !',almost:'Presque !',needs_work:'Une piste pour progresser',unclear:'Reprenons doucement',unrated:'Un conseil de Sofia'};
   const clarity={clear:'Sens clair',partly_clear:'Sens partiellement clair',unclear:'À clarifier'};
-  return `<div class="phrase-feedback ${assessment.verdict}" aria-label="Retour sur votre phrase"><div class="feedback-heading"><strong>${verdicts[assessment.verdict]||'Votre phrase'}</strong>${Number.isInteger(assessment.rating)?`<span class="phrase-score" title="Estimation de Sofia pour cette phrase">${assessment.rating}<small>/5</small></span>`:''}</div>${assessment.praise?`<p>${esc(assessment.praise)}</p>`:''}${assessment.corrected?`<div class="corrected-phrase"><span>À DIRE</span><strong>${esc(assessment.corrected)}</strong><button class="icon-button" data-correction="${id}" aria-label="Écouter la phrase corrigée">${icon('volume')}</button></div>`:''}${assessment.explanation?`<p>${esc(assessment.explanation)}</p>`:''}<small>${clarity[assessment.clarity]||''}${Number.isInteger(assessment.rating)?' · appréciation de Sofia':''}</small></div>`;
+  return `<div class="phrase-feedback ${assessment.verdict}" aria-label="Retour sur votre phrase"><div class="feedback-heading"><strong>${verdicts[assessment.verdict]||'Votre phrase'}</strong>${Number.isInteger(assessment.rating)?`<span class="phrase-score" title="Estimation de Sofia pour cette phrase">${assessment.rating}<small>/5</small></span>`:''}</div>${assessment.praise?`<p>${esc(assessment.praise)}</p>`:''}${assessment.corrected?`<div class="corrected-phrase"><span>À DIRE</span><strong>${esc(assessment.corrected)}</strong><button class="icon-button" data-correction="${id}" aria-label="Écouter la phrase corrigée">${icon('volume')}</button>${state.session?.target==='it'?`<button class="slow-correction" data-correction="${id}" data-slow="true" title="Écouter lentement en italien">IT lent</button>`:''}</div>`:''}${assessment.explanation?`<p>${esc(assessment.explanation)}</p>`:''}${assessment.explanation||assessment.praise?`<div class="segment-tools"><button data-explanation="${id}">${icon('volume')} Explication EN</button></div><div class="requested-translation" id="explanation-${id}" aria-live="polite"></div>`:''}<small>${clarity[assessment.clarity]||''}${Number.isInteger(assessment.rating)?' · appréciation de Sofia':''}</small></div>`;
 }
 function renderMessage(message) {
   const user=message.role==='user', result=message.payload;
@@ -266,7 +270,7 @@ function shouldSpeak(segment,action) {
 }
 function segmentHtml(segment,index=0,message=null) {
   const kind=segmentKind(segment,message?.payload.action), target=segment.language===state.session?.target;
-  return `<div class="segment ${kind==='translation'?'translation':''}"><span class="segment-language">${esc(segment.language.toUpperCase())}${kind==='instruction'?' · CONSEIL':kind==='translation'?' · TRADUCTION':''}</span>${esc(segment.text)}${message?`<div class="segment-tools"><button data-segment-play="${message.id}" data-index="${index}" title="Écouter cette phrase">${icon('volume')} ${segment.language.toUpperCase()}</button>${target?['fr','en'].filter(l=>l!==segment.language).map(lang=>`<button data-translation="${message.id}" data-index="${index}" data-language="${lang}">${lang==='fr'?'Écouter FR':'Listen EN'}</button>`).join(''):''}</div><div class="requested-translation" id="translation-${message.id}-${index}" aria-live="polite"></div>`:''}</div>`;
+  return `<div class="segment ${kind==='translation'?'translation':''}"><span class="segment-language">${esc(segment.language.toUpperCase())}${kind==='instruction'?' · CONSEIL':kind==='translation'?' · TRADUCTION':''}</span>${esc(segment.text)}${message?`<div class="segment-tools"><button data-segment-play="${message.id}" data-index="${index}" title="Écouter cette phrase">${icon('volume')} ${segment.language.toUpperCase()}</button>${segment.language==='it'?`<button data-segment-play="${message.id}" data-index="${index}" data-slow="true" title="Écouter lentement en italien">${icon('clock')} IT lent</button>`:''}${target?['fr','en'].filter(l=>l!==segment.language).map(lang=>`<button data-translation="${message.id}" data-index="${index}" data-language="${lang}">${lang==='fr'?'Écouter FR':'Listen EN'}</button>`).join(''):''}</div><div class="requested-translation" id="translation-${message.id}-${index}" aria-live="polite"></div>`:''}</div>`;
 }
 function phraseForBase(result) {
   const phrase={...result.phrase};
@@ -296,7 +300,7 @@ function renderLessonDetails() {
   const m=result?.metrics;if(m&&$('#metrics'))$('#metrics').innerHTML=`Premier token · ${(m.first_token_ms/1000).toFixed(1)} s<br>Réponse complète · ${(m.total_ms/1000).toFixed(1)} s<br>${m.tokens_per_second} tokens/s · ${esc(m.input==='native_audio'?'Audio direct':m.input==='whisper'?'Whisper + Gemma':'Texte')}${m.transcription_ms?`<br>Transcription · ${(m.transcription_ms/1000).toFixed(1)} s`:''}`;
 }
 function scrollChat() { const messages=$('#messages');if(messages)messages.scrollTop=messages.scrollHeight; }
-function busyUI(busy) { state.busy=busy;$$('[data-help],#composer button,#chat-input,[data-translation],[data-segment-play],[data-replay],[data-correction]').forEach(e=>e.disabled=busy);if($('#finish-button'))$('#finish-button').disabled=busy||state.session.turns<3||!!state.session.finished;$('#target-language').disabled=busy;$('#support-language').disabled=busy; }
+function busyUI(busy) { state.busy=busy;$$('[data-help],#composer button,#chat-input,[data-translation],[data-segment-play],[data-replay],[data-correction],[data-explanation]').forEach(e=>e.disabled=busy);if($('#finish-button'))$('#finish-button').disabled=busy||state.session.turns<3||!!state.session.finished;$('#target-language').disabled=busy;$('#support-language').disabled=busy; }
 async function startLesson(topic) {
   if(state.busy||state.translating)return;
   stopRecording(false);audioPlayer.stop();state.handsfree=false;
@@ -364,22 +368,43 @@ async function playTranslation(button) {
   } finally {state.translating=false;busyUI(false);button.textContent=label;if(!audioPlayer.active)maybeListen();}
 }
 
+async function playExplanation(button) {
+  if(state.busy||state.translating)return;
+  state.translating=true;busyUI(true);await stopRecording(false);audioPlayer.stop();
+  const generation=audioPlayer.generation,label=button.innerHTML;
+  button.textContent='Préparation…';
+  try{
+    const value=await api('/api/assessment-explanation',{session_id:state.session.id,message_id:button.dataset.explanation});
+    const output=$('#explanation-'+button.dataset.explanation);
+    if(output){output.textContent='EN · '+value.text;output.classList.add('visible');}
+    if(audioPlayer.generation===generation)audioPlayer.enqueue(value);
+  }finally{state.translating=false;busyUI(false);button.innerHTML=label;if(!audioPlayer.active)maybeListen();}
+}
+
 class AudioPlayer {
-  constructor(){this.queue=[];this.active=false;this.generation=0;this.audio=null;this.finish=null;}
+  constructor(){this.queue=[];this.active=false;this.generation=0;this.audio=null;this.element=new Audio();this.finish=null;this.resume=null;}
   enqueue(segment){const generation=this.generation;const pending=api('/api/speech',segment).then(value=>({value}),error=>({error}));this.queue.push({pending,generation});if(!this.active)this.pump();}
   async pump(){
     const generation=this.generation;this.active=true;
     while(this.queue.length&&generation===this.generation){
       const {pending}=this.queue.shift();const {value,error}=await pending;if(generation!==this.generation)return;
       if(error){toast('Voix indisponible : '+errorText(error));continue;}
-      const audio=new Audio(value.url);this.audio=audio;
-      try{await new Promise((resolve,reject)=>{this.finish=resolve;audio.onended=resolve;audio.onerror=()=>reject(new Error('Lecture audio impossible.'));audio.play().catch(reject);});}
-      catch(error){toast('Touchez « Écouter » pour lancer la voix.');}
+      const audio=this.element;audio.src=value.url;this.audio=audio;
+      try{await new Promise((resolve,reject)=>{
+        this.finish=resolve;audio.onended=resolve;audio.onerror=()=>reject(new Error('Lecture audio impossible.'));
+        this.resume=()=>audio.play().then(()=>{$('#audio-permission').hidden=true;}).catch(error=>{
+          if(generation!==this.generation)return;
+          if(error.name==='NotAllowedError')$('#audio-permission').hidden=false;else reject(error);
+        });
+        this.resume();
+      });}
+      catch(error){toast(errorText(error));}
+      $('#audio-permission').hidden=true;
       if(generation!==this.generation)return;
     }
-    this.active=false;this.audio=null;this.finish=null;maybeListen();
+    this.active=false;this.audio=null;this.finish=null;this.resume=null;maybeListen();
   }
-  stop(){this.generation++;this.queue=[];if(this.audio){this.audio.pause();this.audio.removeAttribute('src');this.audio.load();}if(this.finish)this.finish();this.audio=null;this.finish=null;this.active=false;}
+  stop(){this.generation++;this.queue=[];$('#audio-permission').hidden=true;if(this.audio){this.audio.onended=null;this.audio.onerror=null;this.audio.pause();this.audio.removeAttribute('src');this.audio.load();}if(this.finish)this.finish();this.audio=null;this.finish=null;this.resume=null;this.active=false;}
 }
 const audioPlayer=new AudioPlayer();
 function voiceStatus(text){if($('#voice-indicator'))$('#voice-indicator').textContent=text;}
@@ -389,9 +414,12 @@ async function startRecording(automatic=false){
   audioPlayer.stop();
   const rec={frames:[],preroll:[],rate:48000,started:performance.now(),lastSpeech:0,voiced:0,noise:.002,automatic,active:false,stream:null,context:null,node:null};state.recorder=rec;
   try{
-    if(!navigator.mediaDevices?.getUserMedia)throw new Error('Le micro nécessite un navigateur récent sur localhost.');
+    if(!navigator.mediaDevices?.getUserMedia)throw new Error('Pour le micro sur téléphone, ouvrez l’adresse HTTPS après la configuration du certificat dans Préférences.');
     voiceStatus('Autorisez le microphone pour commencer.');
-    const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true,...(state.data.settings.mic_device?{deviceId:{exact:state.data.settings.mic_device}}:{})}});
+    const constraints={echoCancellation:true,noiseSuppression:true,autoGainControl:true};
+    let stream;
+    try{stream=await navigator.mediaDevices.getUserMedia({audio:{...constraints,...(state.data.settings.mic_device?{deviceId:{exact:state.data.settings.mic_device}}:{})}});}
+    catch(error){if(!state.data.settings.mic_device||!['OverconstrainedError','NotFoundError'].includes(error.name))throw error;stream=await navigator.mediaDevices.getUserMedia({audio:constraints});}
     if(state.recorder!==rec){stream.getTracks().forEach(t=>t.stop());return;}
     rec.stream=stream;const context=new AudioContext();rec.context=context;rec.rate=context.sampleRate;
     await context.audioWorklet.addModule('/capture.js');await context.resume();
@@ -447,8 +475,9 @@ document.addEventListener('click',async event=>{
     if(button.dataset.help)return await sendTurn(button.dataset.help);
     if(button.id==='mic-button'){if(state.recorder)return await stopRecording(true);return await startRecording(false);}
     if(button.dataset.translation)return await playTranslation(button);
-    if(button.dataset.segmentPlay){if(state.busy||state.translating)return;const m=state.session.messages.find(m=>m.id===button.dataset.segmentPlay);await stopRecording(false);audioPlayer.stop();audioPlayer.enqueue(m.payload.segments[Number(button.dataset.index)]);return;}
-    if(button.dataset.correction){if(state.busy||state.translating)return;const m=state.session.messages.find(m=>m.id===button.dataset.correction);await stopRecording(false);audioPlayer.stop();audioPlayer.enqueue({language:state.session.target,text:m.payload.assessment.corrected});return;}
+    if(button.dataset.explanation)return await playExplanation(button);
+    if(button.dataset.segmentPlay){if(state.busy||state.translating)return;const m=state.session.messages.find(m=>m.id===button.dataset.segmentPlay);await stopRecording(false);audioPlayer.stop();audioPlayer.enqueue({...m.payload.segments[Number(button.dataset.index)],slow:button.dataset.slow==='true'});return;}
+    if(button.dataset.correction){if(state.busy||state.translating)return;const m=state.session.messages.find(m=>m.id===button.dataset.correction);await stopRecording(false);audioPlayer.stop();audioPlayer.enqueue({language:state.session.target,text:m.payload.assessment.corrected,slow:button.dataset.slow==='true'});return;}
     if(button.dataset.replay){if(state.busy||state.translating)return;const m=state.session.messages.find(m=>m.id===button.dataset.replay);await stopRecording(false);audioPlayer.stop();for(const s of m.payload.segments)if(shouldSpeak(s,m.payload.action))audioPlayer.enqueue(s);return;}
     if(button.dataset.saveMessage){const m=state.session.messages.find(m=>m.id===button.dataset.saveMessage);return wordModal({...phraseForBase(m.payload),target:state.session.target});}
     if(button.dataset.feedback){showModal(`<h2>Une idée pour mieux apprendre ?</h2><p>Ce retour sera conservé avec la conversation pour améliorer vos futures leçons.</p><form id="feedback-form"><div class="field"><label for="feedback-note">Votre remarque</label><textarea class="input" id="feedback-note" required maxlength="2000" placeholder="L’explication était trop longue. J’aimerais un autre exemple…"></textarea></div><button class="button" type="submit">Garder ce retour</button></form>`);const mid=button.dataset.feedback;$('#feedback-form').onsubmit=async e=>{e.preventDefault();try{await api('/api/feedback',{session_id:state.session.id,message_id:mid,note:$('#feedback-note').value});$('#modal').close();toast('Votre retour est sauvegardé.');}catch(error){toast(errorText(error));}};return;}
@@ -459,6 +488,7 @@ document.addEventListener('click',async event=>{
     if(button.dataset.suggestLevel){await api('/api/settings',{level:button.dataset.suggestLevel});await refresh();renderLessonDetails();toast('Niveau enregistré pour la prochaine leçon.');return;}
     if(button.dataset.setLevel){await api('/api/settings',{level:button.dataset.setLevel});await refresh();$('#modal').close();setView('learn');toast('Votre nouveau niveau de travail est enregistré.');return;}
     switch(button.dataset.action){
+      case 'resume-audio':return audioPlayer.resume?.();
       case 'profiles':return await profilesModal();
       case 'add-word':return wordModal();
       case 'review':state.review={items:state.data.bookmarks.filter(b=>b.due<=localDay()),index:0,revealed:false};return renderReview();

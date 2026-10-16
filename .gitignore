@@ -17,5 +17,9 @@ artifacts/
 *.wav
 *.onnx
 *.gguf
+*.key
+*.pem
+*.crt
+*.cer
 node_modules/
 .DS_Store

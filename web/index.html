@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#fcfbf7">
   <meta name="description" content="Votre professeur d’italien personnel. Conversations, découvertes et petits progrès, entièrement sur votre ordinateur.">
   <title>Gem Teacher · Parliamo</title>
@@ -44,6 +44,7 @@
     <footer><span><i class="status-dot" id="status-dot"></i><span id="status-text">Connexion au professeur local…</span></span><span>Un mot après l’autre. <span class="footer-flower">✳</span></span></footer>
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <div id="audio-permission" class="audio-permission" hidden><button class="button" data-action="resume-audio">Touchez pour écouter</button><button class="button secondary" data-action="stop-audio">Arrêter</button></div>
   <dialog id="modal"><div id="modal-content"></div><button class="modal-close icon-button" aria-label="Fermer">×</button></dialog>
 </body>
 </html>

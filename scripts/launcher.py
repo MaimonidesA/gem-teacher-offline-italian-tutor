@@ -13,7 +13,7 @@ import webbrowser
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from teacher import config
+from teacher import config, network
 
 def identity(pid):
     try:
@@ -26,11 +26,18 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("command", choices=["start", "stop", "status"], nargs="?", default="start")
     parser.add_argument("--no-browser", action="store_true")
+    sharing = parser.add_mutually_exclusive_group()
+    sharing.add_argument("--lan", action="store_true", help="Remember Wi-Fi sharing with local HTTPS for phones")
+    sharing.add_argument("--localhost", action="store_true", help="Remember computer-only access")
     args = parser.parse_args()
     config.prepare()
     pidfile = config.DATA / "server.pid"
     pid = int(pidfile.read_text()) if pidfile.exists() else None
     running = pid and identity(pid)
+    if args.lan or args.localhost:
+        if running:
+            raise SystemExit("Stop the teacher service before changing Wi-Fi sharing, then start it with --lan or --localhost.")
+        network.save_enabled(args.lan)
     url = f"http://127.0.0.1:{config.PORT}"
     if args.command == "status":
         print(f"Running: {url} (PID {pid})" if running else "Parliamo is stopped.")

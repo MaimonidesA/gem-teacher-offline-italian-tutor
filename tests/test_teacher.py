@@ -2,6 +2,7 @@ import base64
 import copy
 import io
 import json
+import ipaddress
 from pathlib import Path
 import tempfile
 import threading
@@ -11,7 +12,7 @@ import urllib.request
 import urllib.error
 import wave
 
-from teacher import config, engine
+from teacher import config, engine, network
 from teacher.store import Store
 from teacher.profiles import Profiles
 from teacher.server import AppServer, settings_values
@@ -32,6 +33,44 @@ class StoreCase(unittest.TestCase):
         self.tmp.cleanup()
     def turn(self, sid, action="reply", result=None):
         return self.store.commit_turn(sid, "Sto bene.", copy.deepcopy(result or REPLY), action, {})
+
+class NetworkTest(StoreCase):
+    def test_lan_selection_excludes_vpn_and_restricts_clients(self):
+        rows = [
+            {"ifname": "wlan0", "flags": ["UP"], "addr_info": [{"family": "inet", "local": "192.168.1.5", "prefixlen": 24}]},
+            {"ifname": "wg0", "flags": ["UP", "POINTOPOINT"], "addr_info": [{"family": "inet", "local": "10.0.0.2", "prefixlen": 24}]},
+            {"ifname": "docker0", "flags": ["UP"], "addr_info": [{"family": "inet", "local": "172.17.0.1", "prefixlen": 16}]},
+            {"ifname": "eth0", "flags": ["UP"], "addr_info": [{"family": "inet", "local": "8.8.8.8", "prefixlen": 24}]},
+        ]
+        with patch.object(network.subprocess, "check_output", return_value=json.dumps(rows).encode()):
+            interfaces = network.interfaces()
+        self.assertEqual([str(i) for i in interfaces], ["192.168.1.5/24"])
+        for value in ("127.0.0.1", "192.168.1.20"):
+            self.assertTrue(network.client_allowed(value, interfaces))
+        for value in ("10.0.0.3", "192.168.2.2", "8.8.8.8", "invalid"):
+            self.assertFalse(network.client_allowed(value, interfaces))
+        self.assertFalse(network.client_allowed("192.168.1.20", []))
+
+    def test_tls_renews_addresses_without_replacing_phone_trust(self):
+        import ssl, subprocess
+        with patch.dict(network.os.environ, {}, clear=True):
+            self.assertFalse(network.enabled())
+            network.save_enabled(True)
+            self.assertTrue(network.enabled())
+        interface = ipaddress.ip_interface("192.168.1.5/24")
+        network.prepare_tls([interface])
+        folder = config.DATA / "tls"
+        ca = (folder / "phone-ca.crt").read_bytes()
+        first = (folder / "server.crt").read_bytes()
+        network.prepare_tls([interface])
+        self.assertEqual((folder / "server.crt").read_bytes(), first)
+        network.prepare_tls([ipaddress.ip_interface("192.168.1.6/24")])
+        self.assertEqual((folder / "phone-ca.crt").read_bytes(), ca)
+        self.assertNotEqual((folder / "server.crt").read_bytes(), first)
+        for name in ("ca.key", "server.key"):
+            self.assertEqual((folder / name).stat().st_mode & 0o777, 0o600)
+        subprocess.run(["openssl", "verify", "-CAfile", str(folder / "phone-ca.crt"), "-verify_ip", "192.168.1.6", str(folder / "server.crt")], check=True, capture_output=True)
+        ssl.create_default_context(cafile=str(folder / "phone-ca.crt"))
 
 class ProfilesTest(StoreCase):
     def test_existing_history_is_preserved_and_new_profiles_are_independent(self):
@@ -302,6 +341,74 @@ class HTTPTest(StoreCase):
             self.assertIn("connect-src 'self'", response.headers["Content-Security-Policy"])
         with self.call("/api/state") as response:
             self.assertEqual(len(json.load(response)["topics"]), 8)
+    def test_slow_replay_changes_synthesis_without_changing_preferences(self):
+        self.store.update_settings({"speech_rate": 1.1})
+        with patch.object(self.server.speech, "synthesize", return_value=Path("a.wav")) as speak:
+            for data in ({"text": "Come stai?", "language": "it"}, {"text": "Come stai?", "language": "it", "slow": True}):
+                with self.call("/api/speech", data): pass
+            self.assertEqual(speak.call_args_list[0].args, ("Come stai?", "it", 1.1))
+            self.assertGreater(speak.call_args_list[1].args[2], 1.1)
+            with self.assertRaises(urllib.error.HTTPError):
+                self.call("/api/speech", {"text": "Ciao", "slow": "yes"})
+        self.assertEqual(self.store.settings()["speech_rate"], 1.1)
+        self.assertEqual(self.store.dashboard()["stats"]["xp"], 0)
+
+    def test_feedback_english_audio_uses_original_language_and_caches_translation(self):
+        sid = self.store.new_session("hello")["id"]
+        assessment = {"rating": 3, "verdict": "needs_work", "explanation": "Pour l’âge, utilisez avoir.", "corrected": "Ho 30 anni."}
+        self.turn(sid, result={**REPLY, "assessment": assessment})
+        mid = self.store.session(sid)["messages"][0]["id"]
+        self.store.update_settings({"base": "en"})
+        before = self.store.dashboard()["stats"]
+        with patch.object(engine, "translate_phrase", return_value={"translation": "For age, use have.", "english": "For age, use have."}) as translate:
+            for _ in range(2):
+                with self.call("/api/assessment-explanation", {"session_id": sid, "message_id": mid}) as r:
+                    value = json.load(r)
+                self.assertEqual(value["language"], "en")
+                self.assertEqual(value["text"], "For age, use have.")
+            translate.assert_called_once_with(assessment["explanation"], "fr", "en", config.DEFAULT_MODEL)
+        self.assertEqual(self.store.dashboard()["stats"], before)
+        self.turn(sid, result={**REPLY, "assessment": {**assessment, "explanation": "Use have for age."}})
+        mid = self.store.session(sid)["messages"][-2]["id"]
+        # Legacy learner messages had no base field; their paired response does.
+        with self.store.connect() as db:
+            payload = json.loads(db.execute("SELECT payload FROM messages WHERE id=?", (mid,)).fetchone()[0]);payload.pop("base")
+            db.execute("UPDATE messages SET payload=? WHERE id=?", (json.dumps(payload), mid))
+        self.store.update_settings({"base": "fr"})
+        with patch.object(engine, "translate_phrase") as translate:
+            with self.call("/api/assessment-explanation", {"session_id": sid, "message_id": mid}) as r:
+                self.assertEqual(json.load(r)["text"], "Use have for age.")
+            translate.assert_not_called()
+        other = self.server.profiles.create("Other")
+        with self.assertRaises(urllib.error.HTTPError):
+            self.call("/api/assessment-explanation", {"session_id": sid, "message_id": mid}, {"X-Parliamo-Profile": other["id"]})
+
+    def test_lan_hosts_origins_and_public_certificate_are_scoped(self):
+        interface = ipaddress.ip_interface("192.168.1.5/24")
+        host = f"{interface.ip}:{self.server.server_port}"
+        with self.assertRaises(urllib.error.HTTPError): self.call("/api/state", headers={"Host": host})
+        self.server.local_interfaces = [interface]
+        with self.call("/api/state", headers={"Host": host, "Origin": "http://"+host}) as r:
+            self.assertEqual(r.status, 200)
+        for headers in ({"Host": host, "Origin": "https://evil.example"}, {"Host": host, "Sec-Fetch-Site": "cross-site"}, {"Host": "192.168.1.6:"+str(self.server.server_port)}):
+            with self.assertRaises(urllib.error.HTTPError): self.call("/api/state", headers=headers)
+        with self.call("/", headers={"Host": host, "Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document"}) as r:
+            self.assertEqual(r.status, 200)
+        self.server.phone["enabled"] = True
+        folder = config.DATA / "tls";folder.mkdir()
+        (folder / "phone-ca.crt").write_bytes(b"public certificate")
+        (folder / "ca.key").write_bytes(b"private key")
+        with self.call("/phone-ca.crt") as r:
+            self.assertEqual(r.read(), b"public certificate")
+            self.assertEqual(r.headers["Content-Type"], "application/x-x509-ca-cert")
+        for path in ("/tls/ca.key", "/data/tls/ca.key", "/../data/tls/ca.key"):
+            with self.assertRaises(urllib.error.HTTPError): self.call(path)
+        secondary = AppServer(("127.0.0.1", 0), shared=self.server, scheme="https")
+        try:
+            self.assertIs(secondary.speech, self.server.speech)
+            self.assertIs(secondary.profiles, self.server.profiles)
+        finally:
+            secondary.server_close()
     def test_profile_requests_scope_every_learning_resource(self):
         sid = self.store.new_session("hello")["id"]
         mid, _ = self.turn(sid, result={**REPLY, "memory": {"summary": "Original private context"}})

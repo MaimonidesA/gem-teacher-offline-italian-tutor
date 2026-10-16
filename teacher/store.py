@@ -132,7 +132,7 @@ class Store:
                 db.execute("UPDATE sessions SET subject=? WHERE id=?", (user_text.strip(), sid))
             if action not in ("start", "continue"):
                 db.execute("INSERT INTO messages VALUES(?,?,?,?,?,?)", (uuid.uuid4().hex, sid, "user", user_text,
-                           json.dumps({"action": action, "assessment": result["assessment"]}, ensure_ascii=False), now()))
+                           json.dumps({"action": action, "assessment": result["assessment"], "base": result["base"]}, ensure_ascii=False), now()))
             old_notes = compact_notes(json.loads(session["notes"]))
             if not notes["summary"]:
                 notes = old_notes
@@ -232,6 +232,26 @@ class Store:
         with self.connect() as db:
             row = db.execute("SELECT text FROM translations WHERE message_id=? AND segment=? AND language=?", (mid, segment, language)).fetchone()
         return row[0] if row else None
+
+    def assessment_text(self, sid, mid):
+        """Read feedback in its original support language, including old chats."""
+        with self.connect() as db:
+            row = db.execute("""SELECT m.rowid AS position,m.payload,s.base FROM messages m
+                JOIN sessions s ON s.id=m.session_id
+                WHERE m.id=? AND m.session_id=? AND m.role='user'""", (mid, sid)).fetchone()
+            if not row:
+                raise ValueError("Cette correction est introuvable.")
+            payload = json.loads(row["payload"])
+            assessment = payload.get("assessment") or {}
+            text = assessment.get("explanation") or assessment.get("praise")
+            if not text:
+                raise ValueError("Cette phrase n’a pas d’explication à lire.")
+            base = payload.get("base")
+            if base not in ("fr", "en"):
+                following = db.execute("""SELECT payload FROM messages WHERE session_id=?
+                    AND role='assistant' AND rowid>? ORDER BY rowid LIMIT 1""", (sid, row["position"])).fetchone()
+                base = json.loads(following[0]).get("base", row["base"]) if following else row["base"]
+            return {"text": text, "language": base}
 
     def save_translations(self, mid, segment, values):
         with self.connect() as db:

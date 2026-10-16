@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Gem Teacher · Phone setup</title><link rel="icon" href="/app-icon.svg"><link rel="stylesheet" href="/style.css"><script src="/phone.js" defer></script></head>
+<body class="phone-setup">
+  <main class="phone-page">
+    <a class="phone-brand" href="/"><img src="/icon.svg" alt="">parliamo.</a>
+    <div class="eyebrow">YOUR TEACHER, ON YOUR PHONE</div>
+    <h1>A little Italian,<br>wherever you sit.</h1>
+    <p>Connect your phone to the same Wi-Fi as your computer. Your teacher, voices and learning history stay on the computer. Keep it awake while you learn.</p>
+    <section class="panel"><h2>1. Trust this computer once</h2><p>Your phone needs a trusted HTTPS connection to use its microphone. Download this computer’s Gem Teacher certificate and install it using the steps below.</p><a class="button" id="certificate-link" href="/phone-ca.crt">Download local certificate</a>
+      <details><summary>iPhone / iPad</summary><p>Open this page in Safari. Download the certificate, then open Settings → Profile Downloaded (or General → VPN &amp; Device Management) and install <strong>Gem Teacher Local CA</strong>. Next go to General → About → Certificate Trust Settings and enable full trust for it.</p><a href="https://support.apple.com/102390" target="_blank" rel="noreferrer">Apple’s certificate instructions ↗</a></details>
+      <details><summary>Android</summary><p>Download the certificate. In Settings, search for <strong>Install a certificate</strong>. Under Security &amp; privacy → More security settings → Encryption &amp; credentials, choose Install a certificate → CA certificate, then select the downloaded file. Names vary by phone. Reopen Chrome afterward.</p><a href="https://support.google.com/pixelphone/answer/2844832" target="_blank" rel="noreferrer">Google’s certificate instructions ↗</a></details>
+      <small>This trusts the local certificate authority created by your computer. Its private key stays on the computer. You can remove the certificate from your phone’s settings later.</small>
+    </section>
+    <section class="panel"><h2>2. Open your teacher</h2><p>After installing the certificate, open the secure address below. Choose your learner profile, tap the microphone and allow microphone access.</p><div id="phone-addresses" class="phone-addresses">Finding your local teacher…</div><small>Bookmark the secure address for next time. If your computer’s Wi-Fi address changes, restart Gem Teacher and check Preferences for the new address; the trusted certificate authority stays the same.</small></section>
+    <section class="panel"><h2>3. Take turns, keep the conversation</h2><p>Phone and computer share the same local model. One teacher response runs at a time. Adding your phone does not load another model or reserve more GPU memory.</p><p>The profiles are available to devices on this Wi-Fi. Use your own profile to keep your progress separate.</p></section>
+    <p class="subtle">You can type and listen over the <a href="/">ordinary local address</a> too. Live microphone conversations use the secure address.</p>
+  </main>
+</body></html>

@@ -8,7 +8,7 @@ import time
 import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
-from . import config, engine
+from . import config, engine, network
 from .curriculum import TOPICS, BY_ID
 from .speech import Speech, transcribe
 from .store import Store
@@ -40,7 +40,7 @@ def settings_values(data):
 
 def health(store):
     prefs = store.settings()
-    result = {"application": "parliamo", "version": "0.5.0", "busy": TURN_LOCK.locked(), "online": False, "model": prefs["model"], "models": [], "placement": "Non chargé", "audio": False,
+    result = {"application": "parliamo", "version": "0.6.0", "busy": TURN_LOCK.locked(), "online": False, "model": prefs["model"], "models": [], "placement": "Non chargé", "audio": False,
               "voices": {lang: p.is_file() for lang, (p, _) in config.VOICES.items()},
               "whisper": (config.RUNTIME / "whisper/bin/whisper-cli").is_file()}
     try:
@@ -61,15 +61,26 @@ class AppServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, address, store=None):
-        self.store = store or Store()
-        self.profiles = Profiles(self.store)
-        self.speech = Speech()
+    def __init__(self, address, store=None, shared=None, local_interfaces=(), scheme="http"):
+        self.shared = shared
+        self.store = shared.store if shared else store or Store()
+        self.profiles = shared.profiles if shared else Profiles(self.store)
+        self.speech = shared.speech if shared else Speech()
+        self.local_interfaces = local_interfaces
+        self.scheme = scheme
+        self.phone = {"enabled": False, "urls": [], "setup_urls": []}
         super().__init__(address, Handler)
 
     def server_close(self):
-        self.speech.close()
+        if not self.shared:
+            self.speech.close()
         super().server_close()
+
+    def get_request(self):
+        connection, address = super().get_request()
+        if self.scheme == "https":
+            connection.settimeout(20)
+        return connection, address
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
@@ -80,10 +91,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def safe_request(self):
         allowed = {f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"}
-        if self.headers.get("Host", "") not in allowed:
+        allowed.update(f"{i.ip}:{self.server.server_port}" for i in self.server.local_interfaces)
+        host = self.headers.get("Host", "")
+        if host not in allowed or not network.client_allowed(self.client_address[0], self.server.local_interfaces):
             return False
         origin = self.headers.get("Origin")
-        return not origin or origin in {"http://" + host for host in allowed}
+        # A tap from the HTTP setup page to HTTPS is a cross-site top-level
+        # navigation. Permit that while still rejecting cross-site API fetches.
+        navigation = (self.command == "GET" and self.headers.get("Sec-Fetch-Mode") == "navigate"
+                      and self.headers.get("Sec-Fetch-Dest") == "document")
+        return (self.headers.get("Sec-Fetch-Site") != "cross-site" or navigation) and (not origin or origin == f"{self.server.scheme}://{host}")
 
     def send_headers(self, code, content_type, size=None):
         self.send_response(code)
@@ -119,17 +136,21 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == "/api/profiles":
                 return self.json({"profiles": self.server.profiles.list()})
+            if path == "/api/network":
+                return self.json(self.server.phone)
             if path.startswith("/api/"):
                 profile, store = self.server.profiles.resolve(self.headers.get("X-Parliamo-Profile", "default"))
             if path == "/api/state":
-                return self.json({**store.dashboard(), "topics": TOPICS, "profile": profile})
+                return self.json({**store.dashboard(), "topics": TOPICS, "profile": profile, "network": self.server.phone})
             if path == "/api/health":
                 return self.json(health(store))
             if path == "/api/export":
                 return self.json({**store.export(), "profile": profile})
             if path.startswith("/api/sessions/"):
                 return self.json(store.session(path.rsplit("/", 1)[1]))
-            if path.startswith("/audio/"):
+            if path == "/phone-ca.crt" and self.server.phone["enabled"]:
+                file = config.DATA / "tls" / "phone-ca.crt"
+            elif path.startswith("/audio/"):
                 filename = path.rsplit("/", 1)[1]
                 if not __import__("re").fullmatch(r"[a-f0-9]{64}\.wav", filename):
                     return self.json({"error": "Introuvable"}, 404)
@@ -142,7 +163,7 @@ class Handler(BaseHTTPRequestHandler):
             if not file.is_file():
                 return self.json({"error": "Introuvable"}, 404)
             data = file.read_bytes()
-            content_type = mimetypes.guess_type(file.name)[0] or "application/octet-stream"
+            content_type = "application/x-x509-ca-cert" if path == "/phone-ca.crt" else mimetypes.guess_type(file.name)[0] or "application/octet-stream"
             self.send_headers(200, content_type, len(data))
             self.wfile.write(data)
         except (ValueError, OSError) as exc:
@@ -178,10 +199,29 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/speech":
                 text = data.get("text", "")
                 language = data.get("language", "it")
-                if not isinstance(text, str) or not 1 <= len(text) <= 1600 or language not in config.LANGUAGES:
+                slow = data.get("slow", False)
+                if not isinstance(text, str) or not 1 <= len(text) <= 1600 or language not in config.LANGUAGES or type(slow) is not bool:
                     raise ValueError("Texte ou langue incorrects.")
-                output = self.server.speech.synthesize(text, language, store.settings()["speech_rate"])
+                rate = store.settings()["speech_rate"]
+                # Piper's length_scale grows as speech slows; the normal setting stays intact.
+                if slow:
+                    rate = min(2.0, max(1.45, rate * 1.35))
+                output = self.server.speech.synthesize(text, language, rate)
                 return self.json({"url": "/audio/" + output.name})
+            if path == "/api/assessment-explanation":
+                mid = str(data.get("message_id", ""))
+                feedback = store.assessment_text(str(data.get("session_id", "")), mid)
+                translated = feedback["text"] if feedback["language"] == "en" else store.translation(mid, -1, "en")
+                if not translated:
+                    if not TURN_LOCK.acquire(blocking=False):
+                        return self.json({"error": "Attendez la fin de la réponse pour traduire."}, 409)
+                    try:
+                        translated = engine.translate_phrase(feedback["text"], feedback["language"], "en", store.settings()["model"])["english"]
+                        # Reserved slot -1 stores the feedback explanation, never a dialogue segment.
+                        store.save_translations(mid, -1, {"en": translated})
+                    finally:
+                        TURN_LOCK.release()
+                return self.json({"text": translated, "language": "en", "message_id": mid})
             if path == "/api/translate":
                 text = data.get("text", "")
                 source = data.get("source", store.settings()["target"])
@@ -329,11 +369,30 @@ def main():
     parser = argparse.ArgumentParser(description="Parliamo — votre professeur de langues local")
     parser.add_argument("command", choices=["serve", "doctor"], nargs="?", default="serve")
     parser.add_argument("--port", type=int, default=config.PORT)
+    parser.add_argument("--lan", action="store_true", default=network.enabled())
     args = parser.parse_args()
     if args.command == "doctor":
         print(json.dumps(health(Store()), ensure_ascii=False, indent=2))
         return
-    server = AppServer(("127.0.0.1", args.port))
+    local_interfaces = network.interfaces() if args.lan else []
+    context = network.prepare_tls(local_interfaces) if args.lan else None
+    server = AppServer(("0.0.0.0" if args.lan else "127.0.0.1", args.port), local_interfaces=local_interfaces)
+    secure = None
+    if context:
+        try:
+            secure = AppServer(("0.0.0.0", config.HTTPS_PORT), shared=server, local_interfaces=local_interfaces, scheme="https")
+            # Handshake in each request thread, so an idle phone connection
+            # cannot stall other clients while the listener accepts sockets.
+            secure.socket = context.wrap_socket(secure.socket, server_side=True, do_handshake_on_connect=False)
+            server.phone = secure.phone = {"enabled": True,
+                "urls": [f"https://{i.ip}:{config.HTTPS_PORT}" for i in local_interfaces],
+                "setup_urls": [f"http://{i.ip}:{args.port}/phone.html" for i in local_interfaces]}
+            threading.Thread(target=secure.serve_forever, daemon=True).start()
+        except Exception:
+            if secure:
+                secure.server_close()
+            server.server_close()
+            raise
     def stop(*_):
         threading.Thread(target=server.shutdown, daemon=True).start()
     signal.signal(signal.SIGTERM, stop)
@@ -342,6 +401,9 @@ def main():
     try:
         server.serve_forever()
     finally:
+        if secure:
+            secure.shutdown()
+            secure.server_close()
         server.server_close()
 
 if __name__ == "__main__":

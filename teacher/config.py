@@ -5,6 +5,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DATA = Path(os.environ.get("PARLIAMO_DATA", ROOT / "data")).resolve()
 RUNTIME = ROOT / "runtime"
 PORT = int(os.environ.get("PARLIAMO_PORT", "8765"))
+HTTPS_PORT = int(os.environ.get("PARLIAMO_HTTPS_PORT", "9443"))
 OLLAMA = "http://127.0.0.1:11434"
 DEFAULT_MODEL = os.environ.get("PARLIAMO_MODEL", "gemma4:latest")
 VOICES = {
