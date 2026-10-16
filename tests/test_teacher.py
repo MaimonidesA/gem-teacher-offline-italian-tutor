@@ -7,7 +7,7 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import urllib.request
 import urllib.error
 import wave
@@ -15,7 +15,7 @@ import wave
 from teacher import config, engine, network
 from teacher.store import Store
 from teacher.profiles import Profiles
-from teacher.server import AppServer, settings_values
+from teacher.server import AppServer, refresh_phone, settings_values
 from teacher.learning import compact_notes, clean_assessment, segment_kind
 
 REPLY = {"segments": [{"language": "it", "text": "Ciao! Come stai?"}, {"language": "fr", "text": "Comment vas-tu ?"}],
@@ -35,6 +35,18 @@ class StoreCase(unittest.TestCase):
         return self.store.commit_turn(sid, "Sto bene.", copy.deepcopy(result or REPLY), action, {})
 
 class NetworkTest(StoreCase):
+    def test_watcher_recovers_after_missing_wifi_and_retries_failed_refresh(self):
+        first = ipaddress.ip_interface("192.168.1.5/24")
+        second = ipaddress.ip_interface("192.168.2.5/24")
+        stopped = Mock()
+        stopped.wait.side_effect = [False] * 6 + [True]
+        changed = Mock(side_effect=[OSError("temporary certificate error"), None, None, None])
+        with patch.object(network, "interfaces", side_effect=[[], [first], [first], [first], [], [second]]):
+            with self.assertLogs(level="ERROR"):
+                network.watch_interfaces([], changed, stopped)
+        self.assertEqual([call.args[0] for call in changed.call_args_list],
+                         [(first,), (first,), (), (second,)])
+
     def test_lan_selection_excludes_vpn_and_restricts_clients(self):
         rows = [
             {"ifname": "wlan0", "flags": ["UP"], "addr_info": [{"family": "inet", "local": "192.168.1.5", "prefixlen": 24}]},
@@ -341,6 +353,53 @@ class HTTPTest(StoreCase):
             self.assertIn("connect-src 'self'", response.headers["Content-Security-Policy"])
         with self.call("/api/state") as response:
             self.assertEqual(len(json.load(response)["topics"]), 8)
+
+    def test_phone_recovers_from_no_wifi_and_renews_live_tls_without_restarting(self):
+        import http.client, socket, ssl
+        context = network.prepare_tls([])
+        ca = config.DATA / "tls" / "phone-ca.crt"
+        original_ca = ca.read_bytes()
+        client_context = ssl.create_default_context(cafile=str(ca))
+        secure = AppServer(("127.0.0.1", 0), shared=self.server, scheme="https")
+        secure.socket = context.wrap_socket(secure.socket, server_side=True, do_handshake_on_connect=False)
+        thread = threading.Thread(target=secure.serve_forever, daemon=True)
+        thread.start()
+        try:
+            refresh_phone(self.server, secure, [])
+            first = ipaddress.ip_interface("192.168.1.5/24")
+            second = ipaddress.ip_interface("192.168.2.6/24")
+            with self.assertRaises(urllib.error.HTTPError) as error:
+                self.call("/", headers={"Host": f"{first.ip}:{self.server.server_port}"})
+            self.assertEqual(error.exception.code, 403)
+            for interface in (first, second):
+                refresh_phone(self.server, secure, [interface], context)
+                with self.call("/api/network", headers={"Host": f"{interface.ip}:{self.server.server_port}"}) as response:
+                    self.assertEqual(json.load(response)["urls"], [f"https://{interface.ip}:{secure.server_port}"])
+                # Connect to the same live TLS listener, verifying its new LAN
+                # hostname using the CA trusted before Wi-Fi was available.
+                with socket.create_connection(secure.server_address, timeout=5) as raw:
+                    with client_context.wrap_socket(raw, server_hostname=str(interface.ip)) as connection:
+                        connection.sendall(f"GET /api/network HTTP/1.1\r\nHost: {interface.ip}:{secure.server_port}\r\nConnection: close\r\n\r\n".encode())
+                        response = http.client.HTTPResponse(connection)
+                        response.begin()
+                        self.assertEqual(response.status, 200)
+                        self.assertEqual(json.load(response), self.server.phone)
+                        response.close()
+            self.assertEqual(ca.read_bytes(), original_ca)
+            self.assertIs(secure.speech, self.server.speech)
+            self.assertFalse(network.client_allowed("192.168.1.20", secure.local_interfaces))
+            with self.assertRaises(urllib.error.HTTPError):
+                self.call("/", headers={"Host": f"{first.ip}:{self.server.server_port}"})
+            refresh_phone(self.server, secure, [], context)
+            self.assertEqual(secure.local_interfaces, ())
+            with self.call("/api/network") as response:
+                self.assertEqual(json.load(response), {"enabled": True, "urls": [], "setup_urls": []})
+            with self.assertRaises(urllib.error.HTTPError):
+                self.call("/", headers={"Host": f"{second.ip}:{self.server.server_port}"})
+        finally:
+            secure.shutdown()
+            secure.server_close()
+            thread.join()
     def test_slow_replay_changes_synthesis_without_changing_preferences(self):
         self.store.update_settings({"speech_rate": 1.1})
         with patch.object(self.server.speech, "synthesize", return_value=Path("a.wav")) as speak:

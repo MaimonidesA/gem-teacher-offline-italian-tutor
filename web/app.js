@@ -34,7 +34,7 @@ async function api(path, data, profileId=state.profileId) {
   const response = await fetch(path, {headers:{'Content-Type':'application/json','X-Parliamo-Profile':profileId},...(data===undefined?{}:{method:'POST',body:JSON.stringify(data)})});
   const value = await response.json(); if (!response.ok) throw new Error(value.error || 'Une erreur est survenue.'); return value;
 }
-function errorText(error) { return error.message === 'Failed to fetch' ? 'Le serveur local ne répond pas. Relancez run_teacher.sh.' : error.message; }
+function errorText(error) { return error.message === 'Failed to fetch' ? 'Le serveur local ne répond pas. Ouvrez Gem Teacher sur l’ordinateur et gardez-le allumé, sur le même Wi-Fi que votre téléphone.' : error.message; }
 async function refresh() { state.data = await api('/api/state'); if(state.session)state.session.base=state.data.settings.base; updateChrome(); }
 function updateChrome() {
   const data = state.data; if (!data) return;
@@ -172,9 +172,26 @@ function renderSettings() {
     <aside><section class="panel"><div class="panel-title"><h3>Tout se passe ici.</h3>${icon('lock')}</div><dl class="system-list"><div><dt>Professeur</dt><dd>${h?.online?'Disponible':'À vérifier'}</dd></div><div><dt>Calcul du modèle</dt><dd>${esc(h?.placement||'En attente')}</dd></div><div><dt>Mémoire GPU du modèle</dt><dd>${h?.vram_mb?`${h.vram_mb} Mo`:'Non chargé'}</dd></div><div><dt>Audio natif</dt><dd>${h?.audio?'Pris en charge':'Indisponible'}</dd></div><div><dt>Voix Piper</dt><dd>CPU · local</dd></div><div><dt>Whisper</dt><dd>${h?.whisper?'Installé · CPU':'Non installé'}</dd></div><div><dt>Stockage</dt><dd>SQLite · cet ordinateur</dd></div></dl><div class="privacy-note"><strong>Vos mots vous appartiennent.</strong>Conversations, progrès et carnet sont enregistrés ici. Les enregistrements du micro sont traités en mémoire ; ils ne sont pas conservés. Aucun service de reconnaissance vocale du navigateur n’est utilisé.</div><div class="settings-actions"><button class="button secondary small" data-action="diagnostic">Vérifier</button><button class="button secondary small" data-action="warmup">Préparer Sofia</button></div></section><section class="panel" style="margin-top:20px"><h3>La suite de votre apprentissage</h3><p class="subtle" style="margin:12px 0">Exportez vos conversations, corrections, consignes et retours pour une sauvegarde ou pour préparer de meilleures leçons avec un futur modèle.</p><button class="text-button" data-action="export">${icon('download')} Exporter toutes mes données</button></section></aside></div>`;
   $('#settings-form').addEventListener('submit',saveSettings);
   const panel=document.createElement('section');panel.className='panel phone-panel';
-  const network=state.data.network;
-  panel.innerHTML=`<h3>Sur mon téléphone</h3><p>Même Wi-Fi, même professeur, mêmes profils.</p>${network?.enabled&&network.urls.length?`<p>Installez une fois le certificat local sur le téléphone pour parler avec Sofia.</p>${network.setup_urls.map(url=>`<a class="phone-link" href="${esc(url)}" target="_blank" rel="noreferrer" data-verbatim>${esc(url)}</a>`).join('')}<small>Adresse pour les conversations avec le microphone :</small>${network.urls.map(url=>`<a class="phone-link" href="${esc(url)}" target="_blank" rel="noreferrer" data-verbatim>${esc(url)}</a>`).join('')}<p>Un seul modèle est partagé. Les appareils de ce Wi-Fi peuvent accéder aux profils.</p>`:'<p>Sur l’ordinateur, arrêtez le service puis lancez <code>./start_teacher.sh --lan</code> pour activer le partage Wi-Fi.</p>'}`;
   $('.settings-grid>aside').prepend(panel);
+  renderPhonePanel(panel,state.data.network);
+  updatePhonePanel(panel);
+}
+function renderPhonePanel(panel,network){
+  const snapshot=JSON.stringify(network);
+  if(panel.dataset.network===snapshot)return;
+  panel.dataset.network=snapshot;
+  panel.innerHTML=`<h3>Sur mon téléphone</h3><p>Même Wi-Fi, même professeur, mêmes profils.</p>${network?.enabled&&network.urls.length?`<p>Installez une fois le certificat local sur le téléphone pour parler avec Sofia.</p>${network.setup_urls.map(url=>`<a class="phone-link" href="${esc(url)}" target="_blank" rel="noreferrer" data-verbatim>${esc(url)}</a>`).join('')}<small>Adresse pour les conversations avec le microphone :</small>${network.urls.map(url=>`<a class="phone-link" href="${esc(url)}" target="_blank" rel="noreferrer" data-verbatim>${esc(url)}</a>`).join('')}<p>Un seul modèle est partagé. Les appareils de ce Wi-Fi peuvent accéder aux profils.</p>`:network?.enabled?'<p>Partage activé. Connectez l’ordinateur au Wi-Fi : l’adresse apparaîtra automatiquement en quelques secondes.</p>':'<p>Sur l’ordinateur, arrêtez le service puis lancez <code>./start_teacher.sh --lan</code> pour activer le partage Wi-Fi.</p>'}`;
+}
+async function updatePhonePanel(panel){
+  if(!panel.isConnected)return;
+  if(!document.hidden){
+    try{
+      const network=await api('/api/network');
+      if(!panel.isConnected)return;
+      state.data.network=network;renderPhonePanel(panel,network);
+    }catch{/* Keep the last known address during a brief disconnection. */}
+  }
+  setTimeout(()=>updatePhonePanel(panel),5000);
 }
 async function saveSettings(event) {
   event.preventDefault(); const form=event.target, raw=new FormData(form), data=Object.fromEntries(raw);
@@ -540,6 +557,6 @@ async function init(){
     localStorage.removeItem('parliamo-session');
     await refresh();state.session=await savedSession(state.profileId,state.data.settings.target);render();await checkHealth();
   }
-  catch(error){$('#app').innerHTML=`<div class="empty-state"><h1>Votre espace se repose.</h1><p>${esc(errorText(error))}</p><p>Lancez <code>./run_teacher.sh</code>, puis actualisez cette page.</p></div>`;}
+  catch(error){$('#app').innerHTML=`<div class="empty-state"><h1>Votre espace se repose.</h1><p>${esc(errorText(error))}</p><p>Ouvrez Gem Teacher sur l’ordinateur, puis actualisez cette page.</p></div>`;}
 }
 init();

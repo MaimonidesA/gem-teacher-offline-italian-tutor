@@ -121,6 +121,12 @@ the microphone. Typing, recordings, hands-free conversation and local speech use
 the same backend as the desktop. If the browser blocks playback, **Tap to listen**
 resumes the prepared audio.
 
+For later sessions, open **Gem Teacher** from the computer's dock, then open the
+secure bookmark on your phone. Wi-Fi sharing stays enabled; no special command
+is needed. Closing the desktop window leaves the server running, but after a
+computer restart you must open Gem Teacher again. To start just the server without
+opening its window, run `./start_teacher.sh --no-browser`.
+
 The HTTP desktop address remains available. Phone microphone capture needs a
 trusted HTTPS origin; simply bypassing a certificate warning is not the setup.
 See [MDN's microphone requirements](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia),
@@ -130,9 +136,12 @@ See [MDN's microphone requirements](https://developer.mozilla.org/en-US/docs/Web
 Wi-Fi sharing uses Linux `ip` and `openssl`, creates its certificates locally,
 and contacts no certificate service. The private CA and keys stay under ignored
 `data/tls/` with restricted file permissions. Keep that folder in private backups
-to preserve existing phone trust. If the computer's Wi-Fi IP changes, restart the
-teacher; its server certificate renews for the new address while retaining the
-same CA. The setup address and secure address in Preferences update at startup.
+to preserve existing phone trust. The server checks for Wi-Fi/Ethernet changes
+every five seconds, including when it starts before Wi-Fi is ready or the computer
+wakes from sleep. Its server certificate renews for a new address while retaining
+the same CA, without restarting the teacher or loading another model. The phone
+addresses in Preferences update automatically. If your bookmark uses an old IP,
+open the new address shown there; no certificate reinstall is needed.
 
 Only the local Wi-Fi/Ethernet subnets are accepted; VPN and virtual-network
 interfaces are excluded. Host and Origin checks still apply. Profiles are shared

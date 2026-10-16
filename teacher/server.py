@@ -40,7 +40,7 @@ def settings_values(data):
 
 def health(store):
     prefs = store.settings()
-    result = {"application": "parliamo", "version": "0.6.0", "busy": TURN_LOCK.locked(), "online": False, "model": prefs["model"], "models": [], "placement": "Non chargé", "audio": False,
+    result = {"application": "parliamo", "version": "0.6.1", "busy": TURN_LOCK.locked(), "online": False, "model": prefs["model"], "models": [], "placement": "Non chargé", "audio": False,
               "voices": {lang: p.is_file() for lang, (p, _) in config.VOICES.items()},
               "whisper": (config.RUNTIME / "whisper/bin/whisper-cli").is_file()}
     try:
@@ -90,10 +90,11 @@ class Handler(BaseHTTPRequestHandler):
         super().log_message(fmt, *args)
 
     def safe_request(self):
+        local_interfaces = self.server.local_interfaces
         allowed = {f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"}
-        allowed.update(f"{i.ip}:{self.server.server_port}" for i in self.server.local_interfaces)
+        allowed.update(f"{i.ip}:{self.server.server_port}" for i in local_interfaces)
         host = self.headers.get("Host", "")
-        if host not in allowed or not network.client_allowed(self.client_address[0], self.server.local_interfaces):
+        if host not in allowed or not network.client_allowed(self.client_address[0], local_interfaces):
             return False
         origin = self.headers.get("Origin")
         # A tap from the HTTP setup page to HTTPS is a cross-site top-level
@@ -365,6 +366,17 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             TURN_LOCK.release()
 
+def refresh_phone(server, secure, local_interfaces, context=None):
+    local_interfaces = tuple(local_interfaces)
+    if context is not None and local_interfaces:
+        network.prepare_tls(local_interfaces, context=context)
+    phone = {"enabled": True,
+        "urls": [f"https://{i.ip}:{secure.server_port}" for i in local_interfaces],
+        "setup_urls": [f"http://{i.ip}:{server.server_port}/phone.html" for i in local_interfaces]}
+    server.local_interfaces = secure.local_interfaces = local_interfaces
+    server.phone = secure.phone = phone
+
+
 def main():
     parser = argparse.ArgumentParser(description="Parliamo — votre professeur de langues local")
     parser.add_argument("command", choices=["serve", "doctor"], nargs="?", default="serve")
@@ -378,16 +390,20 @@ def main():
     context = network.prepare_tls(local_interfaces) if args.lan else None
     server = AppServer(("0.0.0.0" if args.lan else "127.0.0.1", args.port), local_interfaces=local_interfaces)
     secure = None
+    network_stopped = threading.Event()
+    network_thread = None
     if context:
         try:
             secure = AppServer(("0.0.0.0", config.HTTPS_PORT), shared=server, local_interfaces=local_interfaces, scheme="https")
             # Handshake in each request thread, so an idle phone connection
             # cannot stall other clients while the listener accepts sockets.
             secure.socket = context.wrap_socket(secure.socket, server_side=True, do_handshake_on_connect=False)
-            server.phone = secure.phone = {"enabled": True,
-                "urls": [f"https://{i.ip}:{config.HTTPS_PORT}" for i in local_interfaces],
-                "setup_urls": [f"http://{i.ip}:{args.port}/phone.html" for i in local_interfaces]}
+            refresh_phone(server, secure, local_interfaces)
             threading.Thread(target=secure.serve_forever, daemon=True).start()
+            network_thread = threading.Thread(target=network.watch_interfaces,
+                args=(local_interfaces, lambda current: refresh_phone(server, secure, current, context), network_stopped),
+                daemon=True, name="phone-network")
+            network_thread.start()
         except Exception:
             if secure:
                 secure.server_close()
@@ -401,6 +417,9 @@ def main():
     try:
         server.serve_forever()
     finally:
+        network_stopped.set()
+        if network_thread:
+            network_thread.join(timeout=4)
         if secure:
             secure.shutdown()
             secure.server_close()

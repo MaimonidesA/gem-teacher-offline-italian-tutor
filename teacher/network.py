@@ -1,6 +1,7 @@
 """Optional LAN sharing and local TLS. No public services or certificate calls."""
 import ipaddress
 import json
+import logging
 import os
 from pathlib import Path
 import ssl
@@ -57,7 +58,21 @@ def client_allowed(address, local_interfaces):
         return False
 
 
-def prepare_tls(local_interfaces):
+def watch_interfaces(initial, on_change, stopped, interval=5):
+    """Recover after startup without Wi-Fi, reconnects and DHCP address changes."""
+    previous = tuple(sorted(initial, key=str))
+    while not stopped.wait(interval):
+        try:
+            current = tuple(sorted(interfaces(), key=str))
+            if current != previous:
+                on_change(current)
+                previous = current
+        except (OSError, ValueError, subprocess.SubprocessError):
+            # Keep retrying if certificate renewal or interface discovery fails.
+            logging.exception("Could not refresh phone access; retrying shortly")
+
+
+def prepare_tls(local_interfaces, context=None):
     """Keep one private CA; renew the server certificate when the LAN IP changes."""
     folder = config.DATA / "tls"
     folder.mkdir(mode=0o700, exist_ok=True)
@@ -102,7 +117,10 @@ def prepare_tls(local_interfaces):
             (tmp / "server.crt").replace(cert)
             recorded.write_text(json.dumps(hosts))
         key.chmod(0o600)
-    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    if context is None:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+    # Reload the listener's existing context: new connections use the renewed
+    # certificate, while established phone connections can finish normally.
     context.load_cert_chain(cert, key)
     return context
