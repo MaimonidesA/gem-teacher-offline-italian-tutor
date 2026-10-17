@@ -237,7 +237,7 @@ time, as before.
   provides a hint. The **Langue d’appui / Support language** selector at the top
   switches the entire teaching support between French and English immediately
   for the next reply, including existing lessons, resumed chats and the coffee room.
-  English mode uses English instructions, hints, feedback and new notes, with
+  English mode uses English instructions, hints and new notes, with
   English conversation controls. French mode retains **Help in English** as a
   temporary aid; it does not change your saved support-language choice. You can
   also change the same preference in settings. Switching keeps your current chat,
@@ -272,17 +272,29 @@ time, as before.
   fixed when you continue chatting; the conversation's separate notes keep
   updating. All lesson resources belong to the selected learner profile.
   No extra model inference is needed for checklists, grammar cards, completion
-  announcements, recaps, or vocabulary practice.
+  announcements, or vocabulary practice.
+- When a lesson finishes, the teacher creates a **What we learned / Ce que nous
+  avons appris** summary: skills demonstrated, useful phrases, grammar reminders,
+  actual corrections, and one next step. It is saved in the conversation and the
+  recap, and read aloud when automatic speech is enabled. **Listen to the summary**
+  replays it later. A single local model call runs at the end of the lesson;
+  reopening or replaying the saved summary does not regenerate it. Early endings
+  distinguish unfinished goals. Older lessons offer **Prepare the teacher’s
+  summary**. A summary uses the lesson boundary, excluding later free conversation.
+  If generation is unavailable, a recap assembled from saved learning is kept.
 - Each new learner reply receives a written feedback card beneath the sentence:
   a score out of 5, meaning clarity, a corrected phrase when needed, and a short
-  French explanation (or English with English as the support language). Correct
+  French explanation by default. **Default correction language** in preferences
+  can independently switch new feedback to English. Correct
   phrases receive 5/5. Replay a correction using its speaker button. Scores are
   model estimates based on the typed phrase or audio transcript, not acoustic
   pronunciation measurements. Historical replies without ratings stay unrated.
-  **Explanation EN / Explication EN** reads the feedback explanation in English.
-  French explanations are translated locally on demand and cached with that
-  learner's message; English explanations play directly. The score and progress
-  do not change when listening, and the original written feedback stays intact.
+  Each card offers **Lire FR / Read FR**, **Écouter FR / Listen FR**, **Read EN**,
+  and **Listen EN**. Reading changes the displayed explanation without starting
+  speech; listening shows and speaks that language. The original language is
+  read directly; the other language is translated locally once and cached per
+  message and language. Earlier feedback keeps its original language until you
+  select another version. Scores and progress never change when reading or listening.
 - **Le fil avec Sofia** shows a compact summary, strengths, points to revisit and
   a next practice step. Notes carry into later lessons and update as you talk.
   Resume completed conversations from progress history or the lesson recap.
@@ -505,6 +517,14 @@ all three café goals, the spoken completion, continued conversation with a froz
 recap, and early finishing without false completion credit. Browser checks cover
 French/English goals, listening, vocabulary practice saved across reloads,
 resuming unfinished goals, next-lesson navigation, and phone widths down to 320px.
+
+For lesson summaries and bilingual correction controls, use a separate instance:
+`PARLIAMO_DATA=/tmp/parliamo-summary-validation PARLIAMO_PORT=8774 ./start_teacher.sh --no-browser`,
+then `python3 scripts/live_summaries.py` and `node scripts/browser_summaries.cjs`
+with the same browser environment variables. These check real local summaries,
+saved correction examples, separate text/audio controls, both languages, cached
+recaps, automatic/manual summary playback, and phone layouts. Stop that test
+instance with the same data and port variables when finished.
 
 ## Technical references and attribution
 

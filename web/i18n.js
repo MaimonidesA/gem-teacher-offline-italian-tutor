@@ -3,6 +3,9 @@
    translated by this layer. Original French nodes are retained for switching back. */
 (() => {
   const en = {
+    'Lire FR':'Read FR','Langue par défaut des corrections':'Default correction language',
+    'Chaque correction propose toujours le texte et l’audio en français et en anglais.':'Every correction offers text and audio in both French and English.',
+    'Préparation du résumé de la leçon…':'Preparing the lesson summary…',
     'Écoutez un exemple avant de choisir.':'Listen to a sample before choosing.','Écouter un exemple':'Listen to a sample',
     'Voix féminine · italien standard':'Female voice · Standard Italian',
     'Serena vous écoute…':'Serena is listening…','Serena prépare sa réponse…':'Serena is preparing her reply…',

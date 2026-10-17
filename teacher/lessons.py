@@ -135,3 +135,28 @@ def task_segment(plan, base):
         return None
     prefix = "Prochaine étape : " if base == "fr" else "Your next task: "
     return {"language": base, "kind": "instruction", "text": prefix + objective[base] + "."}
+
+
+def summary_segments(summary):
+    return [{"language": summary["language"], "kind": "instruction", "text": text}
+            for text in [summary["overview"], *summary["points"], summary["next_step"]] if text]
+
+
+def fallback_summary(source, base):
+    """Always leave a useful recap if local generation is temporarily unavailable."""
+    achieved = [o[base] for o in source["objectives"] if o["evidence"]]
+    pending = [o[base] for o in source["objectives"] if not o["evidence"]] if source["status"] != "legacy" else []
+    fr = base == "fr"
+    points = [("Vous avez réussi à : " if fr else "You demonstrated: ") + text for text in achieved]
+    if source["grammar"]:
+        points.append(source["grammar"][base] + " " + source["grammar"]["example"])
+    if source["corrections"]:
+        points.append(("Une correction à retenir : " if fr else "A correction to remember: ") + source["corrections"][0]["corrected"])
+    if source["vocabulary"]:
+        points.append(("Expressions à garder : " if fr else "Useful expressions: ") + "; ".join(v["text"] for v in source["vocabulary"][:3]))
+    return {"language": base, "overview": ("Voici le résumé de notre séance. " if fr else "Here is our lesson summary. ") +
+            (("Tous les objectifs sont atteints." if fr else "All the goals are achieved.") if source["status"] == "achieved" else
+             ("Gardons ce que vous avez pratiqué et les points à reprendre." if fr else "Let’s keep what you practised and the points to revisit.")),
+            "points": points[:6], "next_step": ("Prochaine étape : " if fr else "Next step: ") +
+            (pending[0] if pending else ("réutiliser ces expressions dans une nouvelle situation." if fr else "use these expressions in a new situation.")),
+            "source": "saved_learning"}

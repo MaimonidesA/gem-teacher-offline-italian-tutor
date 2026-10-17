@@ -188,6 +188,7 @@ function renderSettings() {
   const s=state.data.settings, h=state.health;
   $('#app').innerHTML=`<div class="page-intro"><div class="eyebrow">À VOTRE FAÇON</div><h1>Un professeur qui vous ressemble.</h1><p>Vos langues, votre rythme, et ce qui vous aide à apprendre.</p></div><div class="settings-grid"><form id="settings-form" class="panel settings-form">
     <div class="field-row"><div class="field"><label for="base">Ma langue d’appui</label><select class="input" id="base" name="base"><option value="fr" ${s.base==='fr'?'selected':''}>Français d’abord</option><option value="en" ${s.base==='en'?'selected':''}>English first</option></select><small>Ce choix s’applique aussi aux conversations en cours. En français, Help in English reste disponible.</small></div><div class="field"><label for="level">Mon niveau de travail</label><select class="input" id="level" name="level">${[['A0','Je commence'],['A1','Quelques bases'],['A2','Je me débrouille'],['B1','Je converse'],['B2','J’approfondis']].map(([l,n])=>`<option ${s.level===l?'selected':''} value="${l}">${l} · ${n}</option>`).join('')}</select></div></div>
+    <div class="field"><label for="feedback_base">Langue par défaut des corrections</label><select class="input" id="feedback_base" name="feedback_base"><option value="fr" ${s.feedback_base==='fr'?'selected':''}>Français</option><option value="en" ${s.feedback_base==='en'?'selected':''}>English</option></select><small>Chaque correction propose toujours le texte et l’audio en français et en anglais.</small></div>
     <label class="toggle-row"><span>Adapter les leçons à mes réponses<small>Simplifier quand je bloque, avancer quand je suis à l’aise.</small></span><input type="checkbox" name="auto_adapt" ${s.auto_adapt?'checked':''}></label>
     <div class="field"><label for="instructions">Ce que Sofia devrait retenir</label><textarea class="input" name="instructions" id="instructions" maxlength="1500" placeholder="J’aime voyager et cuisiner. Corrige doucement mes articles. Reviens sur le passé composé…">${esc(s.instructions)}</textarea><small>Ces consignes accompagnent chaque leçon. Vos retours sur les réponses restent aussi dans votre export.</small></div>
     <div class="field-row"><div class="field"><label for="daily_goal">Mon objectif quotidien</label><select class="input" id="daily_goal" name="daily_goal">${[10,20,30,50,100].map(n=>`<option value="${n}" ${s.daily_goal===n?'selected':''}>${n} XP · ${n/10} échanges</option>`).join('')}</select></div><div class="field"><label for="speech_rate">Débit de la voix</label><select class="input" id="speech_rate" name="speech_rate">${[[1.3,'Tout doucement'],[1.1,'Un peu plus lent'],[1,'Naturel'],[.85,'Plus rapide']].map(([v,n])=>`<option value="${v}" ${s.speech_rate===v?'selected':''}>${n}</option>`).join('')}</select></div></div>
@@ -300,16 +301,17 @@ function notesPanel(notes) {
   if(!notes?.summary)return '';
   return `<section class="panel memory-panel"><div class="panel-title"><h3>Le fil avec Sofia</h3>${icon('book')}</div><p>${esc(notes.summary)}</p>${notes.strengths?.length?`<div class="memory-label">CE QUI PROGRESSE</div><p>${notes.strengths.map(esc).join(' · ')}</p>`:''}${notes.practice?.length?`<div class="memory-label">À REPRENDRE ENSEMBLE</div><p>${notes.practice.map(esc).join(' · ')}</p>`:''}${notes.next_step?`<div class="memory-next">${icon('arrow')} <span>${esc(notes.next_step)}</span></div>`:''}<small>Notes mises à jour au fil des échanges.</small></section>`;
 }
-function assessmentHtml(assessment, id, teacher='sofia') {
+function assessmentHtml(assessment, id, teacher='sofia', language='fr') {
   if(!assessment)return '';
   const verdicts={correct:'Très bien !',almost:'Presque !',needs_work:'Une piste pour progresser',unclear:'Reprenons doucement',unrated:'Un conseil de Sofia'};
   const clarity={clear:'Sens clair',partly_clear:'Sens partiellement clair',unclear:'À clarifier'};
-  return `<div class="phrase-feedback ${assessment.verdict}" aria-label="Retour sur votre phrase"><div class="feedback-heading"><strong>${verdicts[assessment.verdict]||'Votre phrase'}</strong>${Number.isInteger(assessment.rating)?`<span class="phrase-score" title="Estimation du professeur pour cette phrase">${assessment.rating}<small>/5</small></span>`:''}</div>${assessment.praise?`<p>${esc(assessment.praise)}</p>`:''}${assessment.corrected?`<div class="corrected-phrase"><span>À DIRE</span><strong>${esc(assessment.corrected)}</strong><button class="icon-button" data-correction="${id}" aria-label="Écouter la phrase corrigée">${icon('volume')}</button>${state.session?.target==='it'?`<button class="slow-correction" data-correction="${id}" data-slow="true" title="Écouter lentement en italien">IT lent</button>`:''}</div>${state.session?.target==='it'?`<div class="segment-tools voice-comparison">${otherVoiceButtons(id,0,teacher,true)}</div>`:''}`:''}${assessment.explanation?`<p>${esc(assessment.explanation)}</p>`:''}${assessment.explanation||assessment.praise?`<div class="segment-tools"><button data-explanation="${id}">${icon('volume')} Explication EN</button></div><div class="requested-translation" id="explanation-${id}" aria-live="polite"></div>`:''}<small>${clarity[assessment.clarity]||''}${Number.isInteger(assessment.rating)?' · appréciation du professeur':''}</small></div>`;
+  return `<div class="phrase-feedback ${assessment.verdict}" aria-label="Retour sur votre phrase"><div class="feedback-heading"><strong>${verdicts[assessment.verdict]||'Votre phrase'}</strong>${Number.isInteger(assessment.rating)?`<span class="phrase-score" title="Estimation du professeur pour cette phrase">${assessment.rating}<small>/5</small></span>`:''}</div>${assessment.explanation&&assessment.praise?`<p>${esc(assessment.praise)}</p>`:''}${assessment.corrected?`<div class="corrected-phrase"><span>À DIRE</span><strong>${esc(assessment.corrected)}</strong><button class="icon-button" data-correction="${id}" aria-label="Écouter la phrase corrigée">${icon('volume')}</button>${state.session?.target==='it'?`<button class="slow-correction" data-correction="${id}" data-slow="true" title="Écouter lentement en italien">IT lent</button>`:''}</div>${state.session?.target==='it'?`<div class="segment-tools voice-comparison">${otherVoiceButtons(id,0,teacher,true)}</div>`:''}`:''}${assessment.explanation||assessment.praise?`<p class="feedback-explanation" id="explanation-${id}" lang="${language}" data-verbatim aria-live="polite">${language.toUpperCase()} · ${esc(assessment.explanation||assessment.praise)}</p><div class="segment-tools explanation-tools">${['fr','en'].map(lang=>`<span class="explanation-language"><button data-explanation="${id}" data-language="${lang}" data-play="false" aria-pressed="${lang===language}">${lang==='fr'?'Lire FR':'Read EN'}</button><button data-explanation="${id}" data-language="${lang}" data-play="true">${icon('volume')} ${lang==='fr'?'Écouter FR':'Listen EN'}</button></span>`).join('')}</div>`:''}<small>${clarity[assessment.clarity]||''}${Number.isInteger(assessment.rating)?' · appréciation du professeur':''}</small></div>`;
 }
 function renderMessage(message) {
+  if(message.payload.action==='summary'&&message.payload.lesson_summary)return summaryMessage(message);
   const user=message.role==='user', result=message.payload;
   const retired=!user&&result.teacher&&!state.data.teachers.some(t=>t.id===result.teacher);
-  return `<article class="message ${user?'user':'assistant'}" data-message="${message.id}"><div class="message-label">${user?(result.action==='topic'?'NOUVEAU SUJET':'VOUS'):`<span data-verbatim>${esc(teacherInfo(result.teacher||'sofia').name.toUpperCase())}</span>`}${!user?' · votre professeur':''}</div><div class="bubble">${user?esc(message.content):result.segments?.map((segment,i)=>segmentHtml(segment,i,message)).join('')||esc(message.content)}</div>${user?assessmentHtml(result.assessment,message.id,result.teacher||'sofia'):`${retired?'<p class="retired-voice-note">Ancienne voix retirée : lecture avec votre professeur actuel.</p>':''}<div class="message-actions"><button data-replay="${message.id}">${icon('volume')} Réécouter</button><button data-save-message="${message.id}">${icon('bookmark')} Garder</button><button data-feedback="${message.id}">${icon('flag')} Une remarque</button></div>`}</article>`;
+  return `<article class="message ${user?'user':'assistant'}" data-message="${message.id}"><div class="message-label">${user?(result.action==='topic'?'NOUVEAU SUJET':'VOUS'):`<span data-verbatim>${esc(teacherInfo(result.teacher||'sofia').name.toUpperCase())}</span>`}${!user?' · votre professeur':''}</div><div class="bubble">${user?esc(message.content):result.segments?.map((segment,i)=>segmentHtml(segment,i,message)).join('')||esc(message.content)}</div>${user?assessmentHtml(result.assessment,message.id,result.teacher||'sofia',result.assessment_base||result.base||state.session.base):`${retired?'<p class="retired-voice-note">Ancienne voix retirée : lecture avec votre professeur actuel.</p>':''}<div class="message-actions"><button data-replay="${message.id}">${icon('volume')} Réécouter</button><button data-save-message="${message.id}">${icon('bookmark')} Garder</button><button data-feedback="${message.id}">${icon('flag')} Une remarque</button></div>`}</article>`;
 }
 function segmentKind(segment,action='reply') {
   if(['dialogue','instruction','translation'].includes(segment.kind))return segment.kind;
@@ -374,12 +376,13 @@ async function sendTurn(action,text='',audio=null) {
     const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='';
     async function handle(event){
       if(event.type==='error')throw new Error(event.error);
-      if(event.type==='status'&&$('#thinking-status'))$('#thinking-status').textContent=event.text;
+      if(event.type==='status'){if($('#thinking-status'))$('#thinking-status').textContent=event.text;if($('#turn-status'))$('#turn-status').textContent=event.text;}
       if(event.type==='transcript'&&userNode)$('.bubble',userNode).textContent=event.text;
       if(event.type==='segment'){
         segments.push(event.segment);live.innerHTML=`<article class="message assistant"><div class="message-label">SOFIA · votre professeur</div><div class="bubble">${segments.map(segment=>segmentHtml(segment)).join('')}</div></article>`;
         if(state.data.settings.auto_speak&&shouldSpeak(event.segment,action))audioPlayer.enqueue(event.segment);scrollChat();
       }
+      if(event.type==='lesson_summary'&&state.data.settings.auto_speak){for(const segment of event.segments)audioPlayer.enqueue(segment);}
       if(event.type==='done'){
         done=true;state.session=event.session;state.lastResult=event.result;
         const messages=$('#messages');messages.innerHTML=`${chatIntro(state.session)}${state.session.messages.map(renderMessage).join('')}<div id="live-response"></div>`;
@@ -402,9 +405,12 @@ async function finishLesson() {
   if(state.session.finished)return openLessonRecap(state.session.id);
   busyUI(true);state.handsfree=false;if($('#handsfree'))$('#handsfree').checked=false;
   await stopRecording(false);audioPlayer.stop();
-  try {state.session=await api('/api/finish',{session_id:state.session.id});await refresh();}
+  let summary;
+  if($('#turn-status'))$('#turn-status').textContent=lessonCopy('Préparation du résumé de la leçon…','Preparing the lesson summary…');
+  try {state.session=await api('/api/finish',{session_id:state.session.id});if(state.session.summary_created)summary=state.session.lesson.teacher_summary;await refresh();render();}
   finally {busyUI(false);renderLessonDetails();}
   await openLessonRecap(state.session.id);
+  if(summary&&state.data.settings.auto_speak)speakLessonSummary(summary);
 }
 async function playTranslation(button) {
   if(state.busy||state.translating)return toast('Un instant, Sofia termine sa réponse.');
@@ -421,14 +427,16 @@ async function playTranslation(button) {
 
 async function playExplanation(button) {
   if(state.busy||state.translating)return;
-  state.translating=true;busyUI(true);await stopRecording(false);audioPlayer.stop();
+  const play=button.dataset.play==='true',language=button.dataset.language||'fr';
+  state.translating=true;busyUI(true);await stopRecording(false);if(play)audioPlayer.stop();
   const generation=audioPlayer.generation,label=button.innerHTML;
   button.textContent='Préparation…';
   try{
-    const value=await api('/api/assessment-explanation',{session_id:state.session.id,message_id:button.dataset.explanation});
+    const value=await api('/api/assessment-explanation',{session_id:state.session.id,message_id:button.dataset.explanation,language});
     const output=$('#explanation-'+button.dataset.explanation);
-    if(output){output.textContent='EN · '+value.text;output.classList.add('visible');}
-    if(audioPlayer.generation===generation)audioPlayer.enqueue(value);
+    if(output){output.textContent=value.language.toUpperCase()+' · '+value.text;output.lang=value.language;}
+    $$(`[data-explanation="${button.dataset.explanation}"][data-play="false"]`).forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.language===language)));
+    if(play&&audioPlayer.generation===generation)audioPlayer.enqueue(value);
   }finally{state.translating=false;busyUI(false);button.innerHTML=label;if(!audioPlayer.active)maybeListen();}
 }
 

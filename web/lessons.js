@@ -1,6 +1,15 @@
 'use strict';
-// Lesson resources are local snapshots. Opening/reviewing them never calls Gemma.
+// Saved summaries are reused; older lessons can request one local summary.
 function lessonCopy(fr,en){return state.data.settings.base==='en'?en:fr;}
+function teacherSummaryHtml(summary, playback=''){
+  return `<section class="teacher-summary"><div class="summary-heading"><h3>${lessonCopy('Ce que nous avons appris','What we learned')}</h3>${playback}</div><p data-verbatim>${esc(summary.overview)}</p><ul data-verbatim>${summary.points.map(point=>`<li>${esc(point)}</li>`).join('')}</ul><div class="summary-next"><strong>${lessonCopy('Pour la suite','What to practise next')}</strong><p data-verbatim>${esc(summary.next_step)}</p></div></section>`;
+}
+function summaryMessage(message){
+  return `<article class="message assistant summary-message" data-message="${message.id}"><div class="message-label"><span data-verbatim>${esc(teacherInfo(message.payload.teacher).name.toUpperCase())}</span> · ${lessonCopy('RÉSUMÉ DE LA LEÇON','LESSON SUMMARY')}</div>${teacherSummaryHtml(message.payload.lesson_summary,`<button class="text-button" data-replay="${message.id}">${icon('volume')} ${lessonCopy('Écouter le résumé','Listen to the summary')}</button>`)}</article>`;
+}
+function speakLessonSummary(summary){
+  for(const text of [summary.overview,...summary.points,summary.next_step])if(text)audioPlayer.enqueue({language:summary.language,text,teacher:replayTeacher(summary.teacher||state.data.settings.teacher)});
+}
 function lessonStatus(plan){
   return ({active:lessonCopy('Objectifs en cours','Goals in progress'),achieved:lessonCopy('Objectifs atteints !','Goals achieved!'),ended_early:lessonCopy('Séance terminée · objectifs à reprendre','Session ended · goals still to practise'),legacy:lessonCopy('Leçon terminée avant le suivi détaillé','Lesson completed before detailed tracking')})[plan?.status]||'';
 }
@@ -47,7 +56,8 @@ function renderLessonRecap(){
   if(!plan)return;
   const topic=state.data.topics.find(t=>t.id===session.topic), notes=plan.recap;
   showModal(`<div class="lesson-recap"><div class="eyebrow">${lessonCopy('BILAN DE LA LEÇON','LESSON RECAP')} · ${session.level}</div><h2>${esc(topic.title)}</h2><p class="recap-status" data-verbatim>${lessonStatus(plan)}</p>${plan.status==='legacy'?`<p>${lessonCopy('Votre ancienne validation est conservée. Les preuves par objectif n’étaient pas encore enregistrées.','Your previous completion is preserved. Evidence for individual goals was not recorded at the time.')}</p>`:objectiveList(plan,true)}
-    ${notes?.summary?`<p data-verbatim>${esc(notes.summary)}</p>`:''}${notes?.practice?.length?`<h3>${lessonCopy('À retravailler','Keep practising')}</h3><ul data-verbatim>${notes.practice.map(n=>`<li>${esc(n)}</li>`).join('')}</ul>`:''}${grammarCard(plan)}
+    ${plan.teacher_summary?teacherSummaryHtml(plan.teacher_summary,`<button class="text-button" data-summary-speak>${icon('volume')} ${lessonCopy('Écouter le résumé','Listen to the summary')}</button>`):session.finished?`<button class="button secondary small" data-summary-create>${lessonCopy('Préparer le résumé du professeur','Prepare the teacher’s summary')}</button>`:''}
+    ${!plan.teacher_summary&&notes?.summary?`<p data-verbatim>${esc(notes.summary)}</p>`:''}${notes?.practice?.length?`<h3>${lessonCopy('À retravailler','Keep practising')}</h3><ul data-verbatim>${notes.practice.map(n=>`<li>${esc(n)}</li>`).join('')}</ul>`:''}${grammarCard(plan)}
     <div class="recap-vocabulary-heading"><h3>${lessonCopy('Les mots de cette leçon','This lesson’s vocabulary')}</h3><button class="button small" data-lesson-practice ${plan.vocabulary.length?'':'disabled'}>${lessonCopy('Pratiquer ces mots','Practise these words')}</button></div><p class="subtle">${lessonCopy('Expressions utiles au sujet et rencontrées pendant la leçon.','Useful expressions for the topic and phrases collected during the lesson.')}</p>
     <div class="lesson-vocabulary">${plan.vocabulary.map((item,i)=>`<article><div><strong data-verbatim>${esc(item.text)}</strong><p data-verbatim>${esc(vocabularyMeaning(item))}</p>${state.data.settings.base==='fr'&&item.base==='fr'&&item.english?`<small data-verbatim>EN · ${esc(item.english)}</small>`:''}${item.reviews?`<small>${lessonCopy('Révisions','Reviews')}: ${item.reviews} · ${item.remembered?lessonCopy('Retenu','Remembered'):lessonCopy('À revoir','Practise again')}</small>`:''}</div><div class="vocabulary-actions"><button class="icon-button" data-lesson-speak="${i}" aria-label="${lessonCopy('Écouter','Listen')}">${icon('volume')}</button><button class="icon-button" data-lesson-save="${i}" aria-label="${lessonCopy('Garder dans mon carnet','Save to my notebook')}">${icon('bookmark')}</button></div></article>`).join('')}</div>
     <div class="recap-actions"><button class="button secondary small" data-resume="${session.id}">${lessonCopy('Continuer à discuter','Keep chatting')}</button>${plan.status==='ended_early'?`<button class="button small" data-resume-objectives="${session.id}">${lessonCopy('Reprendre les objectifs','Resume the goals')}</button>`:plan.status==='active'?'':nextLessonButton(session)}<button class="text-button" data-action="back-to-path">${lessonCopy('Retour au parcours','Back to my path')}</button></div></div>`);
@@ -57,6 +67,17 @@ function renderLessonPractice(){
   showModal(`<div class="lesson-recap lesson-practice"><div class="eyebrow">${lessonCopy('LES MOTS DE MA LEÇON','MY LESSON’S WORDS')}</div>${item?`<p>${review.index+1} / ${session.lesson.vocabulary.length}</p><h2 data-verbatim>${esc(item.text)}</h2><button class="icon-button" data-lesson-speak="${review.index}" aria-label="${lessonCopy('Écouter','Listen')}">${icon('volume')}</button><p>${lessonCopy('Retrouvez le sens et essayez une phrase à voix haute.','Recall the meaning and try saying a sentence aloud.')}</p>${review.revealed?`<div class="review-answer" data-verbatim>${esc(vocabularyMeaning(item))}</div><div class="review-actions"><button class="button secondary" data-lesson-grade="again">${lessonCopy('Encore un peu','Practise again')}</button><button class="button" data-lesson-grade="good">${lessonCopy('Je m’en souviens','I remember')}</button></div>`:`<button class="button" data-lesson-reveal>${lessonCopy('Voir le sens','Show the meaning')}</button>`}`:`<h2>${lessonCopy('Révision terminée !','Practice complete!')}</h2><p>${review.index} ${lessonCopy('expressions revues. Votre pratique est sauvegardée.','expressions reviewed. Your practice is saved.')}</p>`}<div class="recap-actions"><button class="text-button" data-lesson-back>${lessonCopy('Retour au bilan','Back to the recap')}</button></div></div>`);
 }
 async function lessonClick(button){
+  if(button.hasAttribute('data-summary-speak')){audioPlayer.stop();speakLessonSummary(state.recapSession.lesson.teacher_summary);return true;}
+  if(button.hasAttribute('data-summary-create')){
+    if(state.busy||state.translating)return true;
+    state.busy=true;button.disabled=true;button.textContent=lessonCopy('Préparation du résumé…','Preparing the summary…');
+    try{
+      state.recapSession=await api('/api/lesson-summary',{session_id:state.recapSession.id});
+      if(state.session?.id===state.recapSession.id){state.session=state.recapSession;render();}
+      renderLessonRecap();
+    }finally{state.busy=false;button.disabled=false;}
+    return true;
+  }
   if(button.dataset.lessonRecap)return await openLessonRecap(button.dataset.lessonRecap),true;
   if(button.dataset.resumeObjectives){
     if(state.busy||state.translating)return true;

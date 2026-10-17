@@ -8,7 +8,7 @@ import time
 import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
-from . import config, engine, network
+from . import config, engine, network, lessons
 from .curriculum import TOPICS, BY_ID
 from .speech import Speech, transcribe
 from .store import Store
@@ -16,12 +16,25 @@ from .profiles import Profiles
 
 TURN_LOCK = threading.Lock()
 
+
+def ensure_lesson_summary(store, sid):
+    """Caller owns TURN_LOCK. A failed model must not lose lesson completion."""
+    session, source = store.summary_source(sid)
+    if session["lesson"].get("teacher_summary", {}).get("for_finished") == session["finished"]:
+        return None
+    prefs = store.settings()
+    try:
+        summary = engine.summarize_lesson(source, prefs["base"], prefs["model"])
+    except (ValueError, OSError):
+        summary = lessons.fallback_summary(source, prefs["base"])
+    return store.save_lesson_summary(sid, session["finished"], summary, prefs["teacher"])
+
 def settings_values(data):
     allowed = {"target", "base", "model", "level", "daily_goal", "auto_speak", "audio_mode", "pause_ms",
-               "instructions", "auto_adapt", "speech_rate", "mic_device", "auto_translate", "humor", "teacher"}
+               "instructions", "auto_adapt", "speech_rate", "mic_device", "auto_translate", "humor", "teacher", "feedback_base"}
     if not isinstance(data, dict) or set(data) - allowed:
         raise ValueError("Réglage inconnu.")
-    for key, choices in [("target", config.LANGUAGES), ("base", ("fr", "en")), ("level", config.LEVELS),
+    for key, choices in [("target", config.LANGUAGES), ("base", ("fr", "en")), ("feedback_base", ("fr", "en")), ("level", config.LEVELS),
                          ("audio_mode", ("native", "whisper")), ("teacher", tuple(config.TEACHERS))]:
         if key in data and data[key] not in choices:
             raise ValueError(f"Valeur incorrecte : {key}")
@@ -40,7 +53,7 @@ def settings_values(data):
 
 def health(store):
     prefs = store.settings()
-    result = {"application": "parliamo", "version": "0.8.0", "busy": TURN_LOCK.locked(), "online": False, "model": prefs["model"], "models": [], "placement": "Non chargé", "audio": False,
+    result = {"application": "parliamo", "version": "0.9.0", "busy": TURN_LOCK.locked(), "online": False, "model": prefs["model"], "models": [], "placement": "Non chargé", "audio": False,
               "voices": {lang: p.is_file() for lang, (p, _) in config.VOICES.items()},
               "whisper": (config.RUNTIME / "whisper/bin/whisper-cli").is_file()}
     try:
@@ -191,14 +204,19 @@ class Handler(BaseHTTPRequestHandler):
                     TURN_LOCK.release()
             if path == "/api/sessions":
                 return self.json(store.new_session(data.get("topic"), data.get("mode", "lesson"), data.get("subject", "")))
-            if path in ("/api/finish", "/api/resume-objectives", "/api/lesson-review"):
+            if path in ("/api/finish", "/api/resume-objectives", "/api/lesson-review", "/api/lesson-summary"):
                 if not TURN_LOCK.acquire(blocking=False):
                     return self.json({"error": "Attendez la fin de la réponse."}, 409)
                 try:
                     sid = str(data.get("session_id", ""))
                     if path == "/api/lesson-review":
                         return self.json(store.review_lesson(sid, data.get("index"), data.get("remembered")))
-                    return self.json(store.finish(sid) if path == "/api/finish" else store.resume_objectives(sid))
+                    if path == "/api/resume-objectives":
+                        return self.json(store.resume_objectives(sid))
+                    if path == "/api/finish":
+                        store.finish(sid)
+                    generated = ensure_lesson_summary(store, sid)
+                    return self.json({**store.session(sid), "summary_created": bool(generated)})
                 finally:
                     TURN_LOCK.release()
             if path == "/api/turn":
@@ -221,18 +239,25 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json({"url": "/audio/" + output.name})
             if path == "/api/assessment-explanation":
                 mid = str(data.get("message_id", ""))
+                language = data.get("language", "fr")
+                if language not in ("fr", "en"):
+                    raise ValueError("Choisissez le français ou l’anglais pour l’explication.")
                 feedback = store.assessment_text(str(data.get("session_id", "")), mid)
-                translated = feedback["text"] if feedback["language"] == "en" else store.translation(mid, -1, "en")
+                translated = feedback["text"] if feedback["language"] == language else store.translation(mid, -1, language)
                 if not translated:
                     if not TURN_LOCK.acquire(blocking=False):
                         return self.json({"error": "Attendez la fin de la réponse pour traduire."}, 409)
                     try:
-                        translated = engine.translate_phrase(feedback["text"], feedback["language"], "en", store.settings()["model"])["english"]
+                        # Recheck after acquiring the shared model lock.
+                        translated = store.translation(mid, -1, language)
+                        if not translated:
+                            values = engine.translate_phrase(feedback["text"], feedback["language"], language, store.settings()["model"])
+                            translated = values["english" if language == "en" else "translation"]
                         # Reserved slot -1 stores the feedback explanation, never a dialogue segment.
-                        store.save_translations(mid, -1, {"en": translated})
+                        store.save_translations(mid, -1, {language: translated})
                     finally:
                         TURN_LOCK.release()
-                return self.json({"text": translated, "language": "en", "message_id": mid})
+                return self.json({"text": translated, "language": language, "message_id": mid})
             if path == "/api/translate":
                 text = data.get("text", "")
                 source = data.get("source", store.settings()["target"])
@@ -366,6 +391,13 @@ class Handler(BaseHTTPRequestHandler):
                     for index, segment in enumerate(result["segments"][spoken_count:], spoken_count):
                         emit({"type": "segment", "segment": segment, "index": index})
                     updated = self.store.session(session["id"])
+                    if updated["finished"] and not session["finished"]:
+                        emit({"type": "status", "text": "Préparation du résumé de la leçon…"})
+                        summary_payload = ensure_lesson_summary(self.store, session["id"])
+                        if summary_payload:
+                            emit({"type": "lesson_summary", "summary": summary_payload["lesson_summary"],
+                                  "segments": summary_payload["segments"]})
+                        updated = self.store.session(session["id"])
                     emit({"type": "done", "result": result, "message_id": mid, "xp": xp, "metrics": metrics,
                           "just_completed": bool(updated["finished"] and not session["finished"]), "session": updated})
                 else:

@@ -540,7 +540,7 @@ class HTTPTest(StoreCase):
         before = self.store.dashboard()["stats"]
         with patch.object(engine, "translate_phrase", return_value={"translation": "For age, use have.", "english": "For age, use have."}) as translate:
             for _ in range(2):
-                with self.call("/api/assessment-explanation", {"session_id": sid, "message_id": mid}) as r:
+                with self.call("/api/assessment-explanation", {"session_id": sid, "message_id": mid, "language": "en"}) as r:
                     value = json.load(r)
                 self.assertEqual(value["language"], "en")
                 self.assertEqual(value["text"], "For age, use have.")
@@ -550,11 +550,11 @@ class HTTPTest(StoreCase):
         mid = self.store.session(sid)["messages"][-2]["id"]
         # Legacy learner messages had no base field; their paired response does.
         with self.store.connect() as db:
-            payload = json.loads(db.execute("SELECT payload FROM messages WHERE id=?", (mid,)).fetchone()[0]);payload.pop("base")
+            payload = json.loads(db.execute("SELECT payload FROM messages WHERE id=?", (mid,)).fetchone()[0]);payload.pop("base");payload.pop("assessment_base")
             db.execute("UPDATE messages SET payload=? WHERE id=?", (json.dumps(payload), mid))
         self.store.update_settings({"base": "fr"})
         with patch.object(engine, "translate_phrase") as translate:
-            with self.call("/api/assessment-explanation", {"session_id": sid, "message_id": mid}) as r:
+            with self.call("/api/assessment-explanation", {"session_id": sid, "message_id": mid, "language": "en"}) as r:
                 self.assertEqual(json.load(r)["text"], "Use have for age.")
             translate.assert_not_called()
         other = self.server.profiles.create("Other")
@@ -607,6 +607,7 @@ class HTTPTest(StoreCase):
             ("/api/finish", {"session_id": sid}), ("/api/review", {"id": bid, "remembered": True}),
             ("/api/lesson-review", {"session_id": sid, "index": 0, "remembered": True}),
             ("/api/resume-objectives", {"session_id": sid}),
+            ("/api/lesson-summary", {"session_id": sid}),
             ("/api/feedback", {"session_id": sid, "message_id": mid, "note": "Wrong profile"}),
             ("/api/message-translation", {"session_id": sid, "message_id": mid, "segment": 0, "language": "en"})]:
             with self.assertRaises(urllib.error.HTTPError): self.call(path, data, headers)

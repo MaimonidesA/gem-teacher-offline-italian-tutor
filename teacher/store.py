@@ -69,7 +69,7 @@ class Store:
         result = {"target": "it", "base": "fr", "model": config.DEFAULT_MODEL, "level": "A1",
                   "daily_goal": 30, "auto_speak": True, "audio_mode": "native", "pause_ms": 650,
                   "instructions": "", "auto_adapt": True, "speech_rate": 1.0, "mic_device": "",
-                  "auto_translate": False, "humor": True, "teacher": "sofia"}
+                  "auto_translate": False, "humor": True, "teacher": "sofia", "feedback_base": "fr"}
         with self.connect() as db:
             result.update({r["key"]: json.loads(r["value"]) for r in db.execute("SELECT * FROM settings")})
         result["level"] = result.get("level_" + result["target"], result["level"])
@@ -134,6 +134,7 @@ class Store:
         result["action"] = action
         result["base"] = self.settings()["base"]
         result["teacher"] = self.settings()["teacher"]
+        result["assessment_base"] = result.get("assessment_base", result["base"])
         result["assessment"] = clean_assessment(result.get("assessment"), action, result.get("correction", ""))
         notes = compact_notes(result.get("memory"))
         with self.connect() as db:
@@ -146,7 +147,7 @@ class Store:
                 db.execute("UPDATE sessions SET subject=? WHERE id=?", (user_text.strip(), sid))
             if action not in ("start", "continue"):
                 db.execute("INSERT INTO messages VALUES(?,?,?,?,?,?)", (uuid.uuid4().hex, sid, "user", user_text,
-                           json.dumps({"action": action, "assessment": result["assessment"], "base": result["base"], "teacher": result["teacher"]}, ensure_ascii=False), now()))
+                           json.dumps({"action": action, "assessment": result["assessment"], "base": result["base"], "assessment_base": result["assessment_base"], "teacher": result["teacher"]}, ensure_ascii=False), now()))
             old_notes = compact_notes(json.loads(session["notes"]))
             if not notes["summary"]:
                 notes = old_notes
@@ -204,9 +205,53 @@ class Store:
             raise ValueError("Cette leçon n’a pas d’objectifs interrompus.")
         plan = session["lesson"]
         plan.update(status="active", recap={})
+        plan.pop("teacher_summary", None)
         with self.connect() as db:
             db.execute("UPDATE sessions SET finished=NULL,summary='',lesson=? WHERE id=?", (json.dumps(plan, ensure_ascii=False), sid))
         return self.session(sid)
+
+    def summary_source(self, sid):
+        session = self.session(sid)
+        if not session["lesson"] or not session["finished"]:
+            raise ValueError("Terminez la séance avant de demander son résumé.")
+        plan = session["lesson"]
+        with self.connect() as db:
+            # Stop at the lesson boundary, even after later free conversation.
+            rows = db.execute("""SELECT content,payload FROM messages WHERE session_id=?
+                AND role='user' AND created<=? ORDER BY created DESC,rowid DESC LIMIT 80""",
+                (sid, session["finished"])).fetchall()
+        corrections = []
+        for row in rows:
+            payload = json.loads(row["payload"])
+            assessment = payload.get("assessment") or {}
+            if assessment.get("corrected"):
+                corrections.append({"original": row["content"][:240], "corrected": assessment["corrected"][:300],
+                                    "reason": assessment.get("explanation", "")[:300]})
+            if len(corrections) == 4:
+                break
+        return session, {"topic": BY_ID[session["topic"]]["title"], "level": session["level"],
+            "target": session["target"], "status": plan["status"], "objectives": plan["objectives"],
+            "notes": plan["recap"], "grammar": plan["grammar"], "corrections": corrections,
+            "vocabulary": [{"text": v["text"], "english": v.get("english", "")} for v in plan["vocabulary"]
+                           if "+" not in v["text"] and "…" not in v["text"] and "..." not in v["text"]
+                           and not any(name.casefold() in v["text"].casefold() for name in config.TEACHER_NAMES.values())][:8]}
+
+    def save_lesson_summary(self, sid, finished, summary, teacher):
+        with self.connect() as db:
+            row = db.execute("SELECT * FROM sessions WHERE id=?", (sid,)).fetchone()
+            if not row or row["finished"] != finished:
+                raise ValueError("La séance a changé. Rouvrez son bilan.")
+            plan = lessons.read_plan(row)
+            if plan.get("teacher_summary", {}).get("for_finished") == finished:
+                return None
+            plan["teacher_summary"] = {**summary, "for_finished": finished, "teacher": teacher}
+            db.execute("UPDATE sessions SET lesson=? WHERE id=?", (json.dumps(plan, ensure_ascii=False), sid))
+            payload = {"action": "summary", "teacher": teacher, "base": summary["language"],
+                       "lesson_summary": summary, "segments": lessons.summary_segments(summary)}
+            mid = uuid.uuid4().hex
+            db.execute("INSERT INTO messages VALUES(?,?,?,?,?,?)", (mid, sid, "assistant",
+                       "\n".join(s["text"] for s in payload["segments"]), json.dumps(payload, ensure_ascii=False), now()))
+            return payload
 
     def review_lesson(self, sid, index, remembered):
         with self.connect() as db:
@@ -298,11 +343,12 @@ class Store:
             text = assessment.get("explanation") or assessment.get("praise")
             if not text:
                 raise ValueError("Cette phrase n’a pas d’explication à lire.")
-            base = payload.get("base")
+            base = payload.get("assessment_base", payload.get("base"))
             if base not in ("fr", "en"):
                 following = db.execute("""SELECT payload FROM messages WHERE session_id=?
                     AND role='assistant' AND rowid>? ORDER BY rowid LIMIT 1""", (sid, row["position"])).fetchone()
-                base = json.loads(following[0]).get("base", row["base"]) if following else row["base"]
+                following_payload = json.loads(following[0]) if following else {}
+                base = following_payload.get("assessment_base", following_payload.get("base", row["base"]))
             return {"text": text, "language": base}
 
     def save_translations(self, mid, segment, values):
