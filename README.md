@@ -1,7 +1,7 @@
 # Gem Teacher · Parliamo
 
 A standalone, offline language tutor for Linux. Learn Italian
-through short conversations with Sofia, with French as your support language
+through short conversations with Sofia, Aurora or Leonardo, with French as your support language
 and English help when you need it. The learning path, daily goal, notebook and
 reviews take inspiration from language-learning apps; the lessons are real
 conversations with your local Gemma model.
@@ -9,6 +9,38 @@ conversations with your local Gemma model.
 Switch French/English support whenever you like, practise in guided lessons or
 the coffee room, get written phrase corrections, save expressions, and keep
 separate local learner profiles for the whole household.
+
+## Three teachers, one conversation
+
+Choose **Sofia**, **Aurora** or **Leonardo** in the teacher bar. Your choice is
+saved separately for each learner. Switching changes the teacher's name, manner
+and Italian voice while retaining the current conversation, draft, lesson progress
+and shared learning notes. Older messages keep their original teacher label.
+
+Under an Italian sentence or correction, **Another voice / Autre voix** lets
+the other two teachers read the exact same text. It only synthesizes speech:
+no extra Gemma request, translation, progress award or change to your main teacher.
+Regular and slow replay retain the original speaker. French and English support
+use the existing shared voices.
+
+Sofia uses Paola; Aurora and Leonardo use the independent
+[Piper Italiano voices by kirys79](https://huggingface.co/kirys79/piper_italiano).
+The author describes Aurora as having a pronounced accent and emphatic pauses,
+but does not identify a region. These voices are **not labelled Roman or Sicilian**.
+They provide different speakers and delivery, not verified regional accent lessons.
+
+After preparing Piper, install the two additional voices once (about 127 MB):
+
+```bash
+python3 scripts/install_teacher_voices.py
+```
+
+This explicit installation step needs internet access. It downloads pinned ONNX
+files, checks their SHA-256 hashes, and saves metadata and attribution under
+`runtime/voices/`. Normal teacher switching and playback work entirely offline.
+Unavailable voices are disabled in the teacher bar. All speech runs on CPU in
+one worker, with at most three loaded voices and a shared 150 MB audio cache.
+Gemma remains the single shared GPU model.
 
 ## Install from source
 
@@ -413,6 +445,14 @@ in this isolated browser test; certificate-chain and IP validation are checked
 separately using the generated CA with a verifying TLS client. Real phones must
 complete the trust steps themselves.
 Reports/screenshots are saved under ignored `artifacts/`.
+
+`scripts/browser_teachers.cjs` uses an isolated instance on port 8772 with a saved
+Italian conversation containing a correction. It checks real local playback,
+teacher switching without losing a draft, speaker labels in history, separate
+learner preferences, a real Gemma identity reply, and 320–1440 pixel layouts.
+Run it with the same `PLAYWRIGHT_MODULE` and `CHROMIUM_PATH` variables as the other
+browser checks. The unittest suite also verifies cache separation between voices,
+unchanged progress after replay, and rejection of unknown teacher IDs.
 
 ## Technical references and attribution
 

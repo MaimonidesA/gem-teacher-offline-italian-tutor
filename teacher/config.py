@@ -13,6 +13,20 @@ VOICES = {
     "fr": (RUNTIME / "voices/fr.onnx", 0),
     "en": (RUNTIME / "voices/en.onnx", None),
 }
+TEACHERS = {
+    "sofia": {"name": "Sofia", "initial": "S", "description": "Voix italienne familière · Paola",
+              "persona": "patient, reassuring and gently humorous", "voice": VOICES["it"][0]},
+    "aurora": {"name": "Aurora", "initial": "A", "description": "Voix expressive · pauses marquées",
+               "persona": "warm, curious and expressive", "voice": RUNTIME / "voices/it-aurora.onnx"},
+    "leonardo": {"name": "Leonardo", "initial": "L", "description": "Voix masculine · autre sonorité",
+                 "persona": "friendly, thoughtful and encouraging", "voice": RUNTIME / "voices/it-leonardo.onnx"},
+}
+
+def teacher_catalog():
+    return [{"id": key, **{k: value[k] for k in ("name", "initial", "description")},
+             "available": value["voice"].is_file() and value["voice"].with_suffix(".onnx.json").is_file()}
+            for key, value in TEACHERS.items()]
+
 LANGUAGES = {"it": "Italian", "fr": "French", "en": "English"}
 LEVELS = ["A0", "A1", "A2", "B1", "B2"]
 

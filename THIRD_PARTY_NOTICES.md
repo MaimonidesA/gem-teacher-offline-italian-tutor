@@ -20,6 +20,16 @@ Parliamo's runtime uses these independently installed open-source components:
   These assets are local runtime files, excluded from the source repository.
 - **whisper.cpp:** copied executable, shared libraries and multilingual small
   weights. Its MIT license is preserved in `runtime/whisper/LICENSE`.
+- **Additional Italian voices — Aurora and Leonardo:** created by
+  [kirys79 / Piper Italiano](https://huggingface.co/kirys79/piper_italiano),
+  published under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+  Both use Multilingual LibriSpeech (MLS) data; original speaker IDs are 6807
+  (Aurora) and 1595 (Leonardo). The optional installer downloads unmodified ONNX
+  weights and configuration from revision
+  `37020d3892ae230be3b8da27cec260459ecb0594`, preserving the upstream model card
+  and source attribution locally. Local filenames are changed only for lookup.
+  Regional origins are not documented; the app makes no Roman or Sicilian
+  accent claim. These runtime files are excluded from the source repository.
 - **GemRadio:** local implementation reference for the audio input protocol,
   GPU-aware context configuration, and persistent speech worker. Relevant
   permission notice is reproduced below. The tutor uses independent local

@@ -60,7 +60,7 @@ class Store:
         result = {"target": "it", "base": "fr", "model": config.DEFAULT_MODEL, "level": "A1",
                   "daily_goal": 30, "auto_speak": True, "audio_mode": "native", "pause_ms": 650,
                   "instructions": "", "auto_adapt": True, "speech_rate": 1.0, "mic_device": "",
-                  "auto_translate": False, "humor": True}
+                  "auto_translate": False, "humor": True, "teacher": "sofia"}
         with self.connect() as db:
             result.update({r["key"]: json.loads(r["value"]) for r in db.execute("SELECT * FROM settings")})
         result["level"] = result.get("level_" + result["target"], result["level"])
@@ -120,6 +120,7 @@ class Store:
         result["metrics"] = metrics
         result["action"] = action
         result["base"] = self.settings()["base"]
+        result["teacher"] = self.settings()["teacher"]
         result["assessment"] = clean_assessment(result.get("assessment"), action, result.get("correction", ""))
         notes = compact_notes(result.get("memory"))
         with self.connect() as db:
@@ -132,7 +133,7 @@ class Store:
                 db.execute("UPDATE sessions SET subject=? WHERE id=?", (user_text.strip(), sid))
             if action not in ("start", "continue"):
                 db.execute("INSERT INTO messages VALUES(?,?,?,?,?,?)", (uuid.uuid4().hex, sid, "user", user_text,
-                           json.dumps({"action": action, "assessment": result["assessment"], "base": result["base"]}, ensure_ascii=False), now()))
+                           json.dumps({"action": action, "assessment": result["assessment"], "base": result["base"], "teacher": result["teacher"]}, ensure_ascii=False), now()))
             old_notes = compact_notes(json.loads(session["notes"]))
             if not notes["summary"]:
                 notes = old_notes

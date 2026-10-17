@@ -3,6 +3,20 @@
    translated by this layer. Original French nodes are retained for switching back. */
 (() => {
   const en = {
+    'À votre écoute, pour apprendre à votre rythme.':'Here to listen and help you learn at your pace.',
+    'Votre professeur':'Your teacher','Même conversation, trois voix italiennes.':'Same conversation, three Italian voices.',
+    'Voix italienne familière · Paola':'Familiar Italian voice · Paola','Voix expressive · pauses marquées':'Expressive voice · emphatic pauses','Voix masculine · autre sonorité':'Male voice · a different sound','Voix à installer':'Voice not installed',
+    'Autre voix :':'Another voice:','Même phrase, autre voix':'Same sentence, another voice','Réécouter':'Replay',
+    '· votre professeur':'· your teacher',
+    'Estimation du professeur pour cette phrase':'Teacher’s estimate for this sentence','· appréciation du professeur':'· teacher’s assessment',
+    'Sens clair · appréciation du professeur':'Clear meaning · teacher’s assessment','Sens partiellement clair · appréciation du professeur':'Partly clear meaning · teacher’s assessment','À clarifier · appréciation du professeur':'Needs clarification · teacher’s assessment',
+    'Attendez la fin de la réponse pour changer de professeur.':'Wait for the reply to finish before switching teachers.',
+    'Le professeur change, la conversation continue.':'New teacher, same conversation.',
+    'Aurora vous écoute…':'Aurora is listening…','Leonardo vous écoute…':'Leonardo is listening…',
+    'Aurora prépare sa réponse…':'Aurora is preparing her reply…','Leonardo prépare sa réponse…':'Leonardo is preparing his reply…',
+    'À propos des voix':'About the voices',
+    'Trois voix italiennes distinctes. Leur région n’est pas certifiée : elles ne sont pas étiquetées romaine ou sicilienne. Les voix françaises et anglaises restent les mêmes.':'Three distinct Italian voices. Their regions are unverified, so they are not labelled Roman or Sicilian. French and English support voices stay the same.',
+    'Les boutons « Autre voix » relisent exactement la même phrase sans changer votre professeur ni vos progrès.':'The “Another voice” buttons repeat exactly the same sentence without changing your teacher or progress.',
     'Le serveur local ne répond pas. Ouvrez Gem Teacher sur l’ordinateur et gardez-le allumé, sur le même Wi-Fi que votre téléphone.':'The local server is not responding. Open Gem Teacher on the computer and keep it awake, on the same Wi-Fi as your phone.',
     'Ouvrez Gem Teacher sur l’ordinateur, puis actualisez cette page.':'Open Gem Teacher on the computer, then refresh this page.',
     'Partage activé. Connectez l’ordinateur au Wi-Fi : l’adresse apparaîtra automatiquement en quelques secondes.':'Sharing is enabled. Connect the computer to Wi-Fi: its address will appear automatically within a few seconds.',
@@ -36,7 +50,7 @@
     'LES PETITS PAS COMPTENT':'SMALL STEPS COUNT','Regardez le chemin parcouru.':'Look how far you’ve come.','XP de pratique':'Practice XP','jours de suite':'days in a row','leçons terminées':'completed lessons','expressions gardées':'saved expressions','Votre semaine en mots':'Your week in words','XP / JOUR':'XP / DAY','Votre niveau de travail':'Your practice level','Sofia adapte la difficulté à vos réponses. Le niveau choisi est un repère de pratique, pas une certification.':'Sofia adapts difficulty to your answers. Your chosen level is a practice guide, not a certification.','Ajuster mon niveau':'Adjust my level','Vos dernières conversations':'Your recent conversations','Votre première conversation écrira le début de cette histoire.':'Your first conversation will start this story.',
     'Sofia prépare sa réponse…':'Sofia is preparing her reply…','Sofia vous écoute…':'Sofia is listening…','Whisper transcrit votre phrase…':'Whisper is transcribing your words…','Leçon validée. On garde le fil avec Sofia !':'Lesson completed. Keep chatting with Sofia!','Leçon validée ! La conversation continue.':'Lesson completed! The conversation continues.','Une idée pour mieux apprendre ?':'An idea for better learning?','Ce retour sera conservé avec la conversation pour améliorer vos futures leçons.':'This feedback stays with the conversation to help improve future lessons.','Votre remarque':'Your feedback','Garder ce retour':'Save feedback','Votre retour est sauvegardé.':'Your feedback is saved.','L’appui en français reprend dès la prochaine réponse.':'French support starts again with the next reply.'
   };
-  let locale='fr';
+  let locale='fr', teacherName='Sofia';
   const originals=new WeakMap();
   const skip='script,style,textarea,input,[data-verbatim],.phrase-highlight,.corrected-phrase strong,.phrase-feedback p,.correction,.word-heading h3,.word-card p,.notebook-word,.notebook-translation,.coffee-subject,.coffee-resume strong,.history-item strong,.memory-panel p,.memory-panel .memory-next span,#correction-panel .eyebrow,#phrase-panel p.subtle,.requested-translation';
   function translate(text){
@@ -73,7 +87,7 @@
     const current=attribute?node.getAttribute(attribute):node.nodeValue;if(!current)return;
     const key=attribute||'text';let records=originals.get(node)||{};let record=records[key];
     if(!record||current!==record.last)record={source:current,last:current};
-    const desired=locale==='en'?translate(record.source):record.source;
+    const desired=(locale==='en'?translate(record.source):record.source).replace(/\bSofia\b/g,teacherName).replace(/\bSOFIA\b/g,teacherName.toUpperCase());
     record.last=desired;records[key]=record;originals.set(node,records);
     if(current!==desired){if(attribute)node.setAttribute(attribute,desired);else node.nodeValue=desired;}
   }
@@ -91,7 +105,7 @@
     document.documentElement.lang=locale;
     observer?.observe(document.body,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['placeholder','title','aria-label']});
   }
-  window.setSupportLocale=base=>{locale=base==='en'?'en':'fr';localize();};
+  window.setSupportLocale=(base,name='Sofia')=>{locale=base==='en'?'en':'fr';teacherName=name;localize();};
   observer=new MutationObserver(localize);
   localize();
 })();

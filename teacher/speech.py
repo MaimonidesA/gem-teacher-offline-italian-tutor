@@ -33,11 +33,16 @@ class Speech:
                 self.process.wait()
             self.process = None
 
-    def synthesize(self, text, language, rate=1.0):
+    def synthesize(self, text, language, rate=1.0, teacher="sofia"):
+        if not isinstance(teacher, str) or teacher not in config.TEACHERS:
+            raise ValueError("Professeur inconnu.")
         model, speaker = config.VOICES[language]
+        if language == "it":
+            model, speaker = config.TEACHERS[teacher]["voice"], None
         if not model.is_file():
-            raise ValueError("Voix absente. Lancez python3 scripts/bootstrap_local.py.")
-        digest = hashlib.sha256(f"{language}|{rate}|{text}".encode()).hexdigest()
+            raise ValueError("Voix absente. Installez les voix locales depuis les instructions du projet.")
+        identity = f"{model.name}|{model.stat().st_size}|{model.stat().st_mtime_ns}|{speaker}"
+        digest = hashlib.sha256(f"{language}|{identity}|{rate}|{text}".encode()).hexdigest()
         output = config.DATA / "speech" / f"{digest}.wav"
         with self.lock:
             if output.exists():

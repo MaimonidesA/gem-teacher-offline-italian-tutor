@@ -18,11 +18,11 @@ TURN_LOCK = threading.Lock()
 
 def settings_values(data):
     allowed = {"target", "base", "model", "level", "daily_goal", "auto_speak", "audio_mode", "pause_ms",
-               "instructions", "auto_adapt", "speech_rate", "mic_device", "auto_translate", "humor"}
+               "instructions", "auto_adapt", "speech_rate", "mic_device", "auto_translate", "humor", "teacher"}
     if not isinstance(data, dict) or set(data) - allowed:
         raise ValueError("Réglage inconnu.")
     for key, choices in [("target", config.LANGUAGES), ("base", ("fr", "en")), ("level", config.LEVELS),
-                         ("audio_mode", ("native", "whisper"))]:
+                         ("audio_mode", ("native", "whisper")), ("teacher", tuple(config.TEACHERS))]:
         if key in data and data[key] not in choices:
             raise ValueError(f"Valeur incorrecte : {key}")
     for key, lower, upper in [("daily_goal", 10, 100), ("pause_ms", 400, 1500), ("speech_rate", .7, 1.5)]:
@@ -40,7 +40,7 @@ def settings_values(data):
 
 def health(store):
     prefs = store.settings()
-    result = {"application": "parliamo", "version": "0.6.1", "busy": TURN_LOCK.locked(), "online": False, "model": prefs["model"], "models": [], "placement": "Non chargé", "audio": False,
+    result = {"application": "parliamo", "version": "0.7.0", "busy": TURN_LOCK.locked(), "online": False, "model": prefs["model"], "models": [], "placement": "Non chargé", "audio": False,
               "voices": {lang: p.is_file() for lang, (p, _) in config.VOICES.items()},
               "whisper": (config.RUNTIME / "whisper/bin/whisper-cli").is_file()}
     try:
@@ -142,7 +142,7 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith("/api/"):
                 profile, store = self.server.profiles.resolve(self.headers.get("X-Parliamo-Profile", "default"))
             if path == "/api/state":
-                return self.json({**store.dashboard(), "topics": TOPICS, "profile": profile, "network": self.server.phone})
+                return self.json({**store.dashboard(), "topics": TOPICS, "profile": profile, "network": self.server.phone, "teachers": config.teacher_catalog()})
             if path == "/api/health":
                 return self.json(health(store))
             if path == "/api/export":
@@ -203,11 +203,15 @@ class Handler(BaseHTTPRequestHandler):
                 slow = data.get("slow", False)
                 if not isinstance(text, str) or not 1 <= len(text) <= 1600 or language not in config.LANGUAGES or type(slow) is not bool:
                     raise ValueError("Texte ou langue incorrects.")
-                rate = store.settings()["speech_rate"]
+                prefs = store.settings()
+                teacher = data.get("teacher", prefs["teacher"])
+                if not isinstance(teacher, str) or teacher not in config.TEACHERS:
+                    raise ValueError("Professeur inconnu.")
+                rate = prefs["speech_rate"]
                 # Piper's length_scale grows as speech slows; the normal setting stays intact.
                 if slow:
                     rate = min(2.0, max(1.45, rate * 1.35))
-                output = self.server.speech.synthesize(text, language, rate)
+                output = self.server.speech.synthesize(text, language, rate, teacher=teacher)
                 return self.json({"url": "/audio/" + output.name})
             if path == "/api/assessment-explanation":
                 mid = str(data.get("message_id", ""))
@@ -288,7 +292,7 @@ class Handler(BaseHTTPRequestHandler):
                         "keep_alive": "15m", "options": {"num_ctx": 4096}}, timeout=120)
                     # Preload the Italian voice without occupying GPU memory.
                     try:
-                        self.server.speech.synthesize("Ciao!", "it")
+                        self.server.speech.synthesize("Ciao!", "it", teacher=store.settings()["teacher"])
                     except (OSError, ValueError):
                         pass
                     return self.json(health(store))
@@ -340,7 +344,8 @@ class Handler(BaseHTTPRequestHandler):
                 stt_ms = round((time.monotonic() - start) * 1000)
                 mode = "whisper"
                 emit({"type": "transcript", "text": text})
-            emit({"type": "status", "text": "Sofia vous écoute…" if audio else "Sofia prépare sa réponse…"})
+            name = config.TEACHERS[prefs["teacher"]]["name"]
+            emit({"type": "status", "text": f"{name} vous écoute…" if audio else f"{name} prépare sa réponse…"})
             for event in engine.stream_turn(session, prefs, text, action, audio):
                 if event["type"] == "result":
                     result = event["result"]

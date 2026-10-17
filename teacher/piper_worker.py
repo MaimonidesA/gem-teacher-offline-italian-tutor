@@ -2,10 +2,11 @@
 import json
 import sys
 import wave
+from collections import OrderedDict
 
 def main():
     from piper import PiperVoice, SynthesisConfig
-    voices = {}
+    voices = OrderedDict()
     print(json.dumps({"ready": True}), flush=True)
     for line in sys.stdin:
         try:
@@ -14,7 +15,12 @@ def main():
                 break
             model = req["model"]
             if model not in voices:
+                # At most three voices in CPU RAM, including support languages.
+                # Keep the current teacher and frequently used translations hot.
+                while len(voices) >= 3:
+                    voices.popitem(last=False)
                 voices[model] = PiperVoice.load(model, use_cuda=False)
+            voices.move_to_end(model)
             voice = voices[model]
             syn = SynthesisConfig(speaker_id=req.get("speaker"), length_scale=req.get("rate", 1.0), normalize_audio=True)
             with wave.open(req["output"], "wb") as wav:
