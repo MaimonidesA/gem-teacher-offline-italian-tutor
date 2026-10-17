@@ -65,6 +65,8 @@ class Store:
             result.update({r["key"]: json.loads(r["value"]) for r in db.execute("SELECT * FROM settings")})
         result["level"] = result.get("level_" + result["target"], result["level"])
         result = {k: v for k, v in result.items() if not k.startswith("level_")}
+        if result.get("teacher") not in config.TEACHERS:
+            result["teacher"] = "sofia"
         return result
 
     def update_settings(self, values):

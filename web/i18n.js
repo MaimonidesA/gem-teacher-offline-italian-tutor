@@ -3,6 +3,11 @@
    translated by this layer. Original French nodes are retained for switching back. */
 (() => {
   const en = {
+    'Écoutez un exemple avant de choisir.':'Listen to a sample before choosing.','Écouter un exemple':'Listen to a sample',
+    'Voix féminine · italien standard':'Female voice · Standard Italian',
+    'Serena vous écoute…':'Serena is listening…','Serena prépare sa réponse…':'Serena is preparing her reply…',
+    'Ancienne voix retirée : lecture avec votre professeur actuel.':'Original voice retired: replay uses your current teacher.',
+    'Sofia utilise Paola. Serena utilise une voix féminine en italien standard, sans accent régional annoncé. Les anciennes voix Aurora et Leonardo ont été retirées. Les voix françaises et anglaises restent les mêmes.':'Sofia uses Paola. Serena uses a female Standard Italian voice, without a claimed regional accent. The old Aurora and Leonardo voices have been removed. French and English support voices stay the same.',
     'À votre écoute, pour apprendre à votre rythme.':'Here to listen and help you learn at your pace.',
     'Votre professeur':'Your teacher','Même conversation, trois voix italiennes.':'Same conversation, three Italian voices.',
     'Voix italienne familière · Paola':'Familiar Italian voice · Paola','Voix expressive · pauses marquées':'Expressive voice · emphatic pauses','Voix masculine · autre sonorité':'Male voice · a different sound','Voix à installer':'Voice not installed',

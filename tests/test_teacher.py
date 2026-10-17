@@ -36,19 +36,61 @@ class StoreCase(unittest.TestCase):
         return self.store.commit_turn(sid, "Sto bene.", copy.deepcopy(result or REPLY), action, {})
 
 class TeachersTest(StoreCase):
+    def test_voice_installer_rejects_mismatched_configuration_and_supports_offline_copy(self):
+        import hashlib
+        from scripts import install_teacher_voices as installer
+        source = config.DATA / "downloaded"
+        source.mkdir()
+        model = b"example model bytes"
+        metadata = json.dumps({"espeak": {"voice": "it"}, "num_speakers": 1}).encode()
+        (source / "serena.onnx").write_bytes(model)
+        (source / "serena.onnx.json").write_bytes(b"wrong configuration")
+        (source / "serena-MODEL_CARD.md").write_text("Model attribution")
+        files = dict(installer.FILES)
+        for name, data in (("serena.onnx", model), ("serena.onnx.json", metadata)):
+            files[name] = (files[name][0], hashlib.sha256(data).hexdigest())
+        with patch.object(installer, "ROOT", config.DATA), patch.object(installer, "FILES", files), patch("sys.argv", ["install", "--source-dir", str(source)]), patch("builtins.print"), patch.object(installer.urllib.request, "urlopen") as download:
+            with self.assertRaises(ValueError):
+                installer.main()
+            self.assertFalse((config.DATA / "runtime/voices/it-serena.onnx").exists())
+            (source / "serena.onnx.json").write_bytes(metadata)
+            installer.main()
+            self.assertEqual((config.DATA / "runtime/voices/it-serena.onnx.json").read_bytes(), metadata)
+            with patch("sys.argv", ["install"]):
+                installer.main()
+            download.assert_not_called()
+
+    def test_retired_teacher_selection_falls_back_without_losing_history(self):
+        for retired in ("aurora", "leonardo"):
+            sid = self.store.new_session("hello")["id"]
+            self.turn(sid)
+            message = self.store.session(sid)["messages"][-1]
+            message["payload"]["teacher"] = retired
+            with self.store.connect() as db:
+                db.execute("UPDATE messages SET payload=? WHERE id=?", (json.dumps(message["payload"]), message["id"]))
+            before = self.store.session(sid)
+            self.store.update_settings({"teacher": retired})
+            self.assertEqual(self.store.settings()["teacher"], "sofia")
+            self.assertEqual(self.store.session(sid), before)
+            self.assertEqual(self.store.session(sid)["messages"][-1]["payload"]["teacher"], retired)
+            self.assertIn(retired, config.TEACHER_NAMES)
+            self.assertNotIn(retired, config.TEACHERS)
+            with self.assertRaises(ValueError):
+                settings_values({"teacher": retired})
+
     def test_teacher_switch_preserves_conversation_and_is_scoped_to_profile(self):
         sid = self.store.new_session("hello")["id"]
         self.turn(sid)
         before = self.store.session(sid)
         profiles = Profiles(self.store)
         other = profiles.create("Second learner", "en")
-        self.store.update_settings({"teacher": "aurora"})
+        self.store.update_settings({"teacher": "serena"})
         self.assertEqual(self.store.session(sid), before)
         self.assertEqual(profiles.resolve(other["id"])[1].settings()["teacher"], "sofia")
         self.turn(sid)
         history = self.store.session(sid)["messages"]
-        self.assertEqual([m["payload"]["teacher"] for m in history], ["sofia", "sofia", "aurora", "aurora"])
-        self.assertEqual(Store(self.store.path).settings()["teacher"], "aurora")
+        self.assertEqual([m["payload"]["teacher"] for m in history], ["sofia", "sofia", "serena", "serena"])
+        self.assertEqual(Store(self.store.path).settings()["teacher"], "serena")
         for teacher in config.TEACHERS:
             prefs = {**self.store.settings(), "teacher": teacher}
             prompt = engine.prompt(self.store.session(sid), prefs, "reply")
@@ -74,12 +116,12 @@ class TeachersTest(StoreCase):
         speech.process.stdin.write.side_effect = output
         with patch.object(config, "TEACHERS", models), patch.dict(config.VOICES, {"fr": (support, 0)}), patch.object(speech, "_line", return_value={"ok": True}):
             paths = [speech.synthesize("Ciao!", "it", teacher=t) for t in models]
-            self.assertEqual(len(set(paths)), 3)
+            self.assertEqual(len(set(paths)), 2)
             self.assertEqual(speech.synthesize("Ciao!", "it"), paths[0])
-            self.assertEqual(speech.process.stdin.write.call_count, 3)
+            self.assertEqual(speech.process.stdin.write.call_count, 2)
             self.assertNotEqual(speech.synthesize("Ciao!", "it", 1.5, "sofia"), paths[0])
-            self.assertEqual(speech.synthesize("Bonjour", "fr", teacher="aurora"),
-                             speech.synthesize("Bonjour", "fr", teacher="leonardo"))
+            self.assertEqual(speech.synthesize("Bonjour", "fr", teacher="serena"),
+                             speech.synthesize("Bonjour", "fr", teacher="sofia"))
             with self.assertRaises(ValueError):
                 speech.synthesize("Ciao!", "it", teacher="../file")
 
@@ -465,17 +507,17 @@ class HTTPTest(StoreCase):
     def test_voice_comparison_does_not_change_teacher_or_learning_progress(self):
         sid = self.store.new_session("hello")["id"]
         self.turn(sid)
-        with self.call("/api/settings", {"teacher": "leonardo"}) as response:
-            self.assertEqual(json.load(response)["teacher"], "leonardo")
+        with self.call("/api/settings", {"teacher": "serena"}) as response:
+            self.assertEqual(json.load(response)["teacher"], "serena")
         before = self.store.export()
         with patch.object(self.server.speech, "synthesize", return_value=Path("test.wav")) as speak, patch.object(engine, "request") as llm:
             with self.call("/api/speech", {"text": "Mi piace leggere.", "language": "it"}): pass
-            self.assertEqual(speak.call_args.kwargs["teacher"], "leonardo")
-            with self.call("/api/speech", {"text": "Mi piace leggere.", "language": "it", "teacher": "aurora", "slow": True}): pass
-            self.assertEqual(speak.call_args.kwargs["teacher"], "aurora")
+            self.assertEqual(speak.call_args.kwargs["teacher"], "serena")
+            with self.call("/api/speech", {"text": "Mi piace leggere.", "language": "it", "teacher": "sofia", "slow": True}): pass
+            self.assertEqual(speak.call_args.kwargs["teacher"], "sofia")
             self.assertEqual(speak.call_args.args[:2], ("Mi piace leggere.", "it"))
             self.assertGreater(speak.call_args.args[2], 1.0)
-            for teacher in ("unknown", "../../file", {}, None):
+            for teacher in ("unknown", "aurora", "leonardo", "../../file", {}, None):
                 with self.assertRaises(urllib.error.HTTPError) as error:
                     self.call("/api/speech", {"text": "Ciao!", "teacher": teacher})
                 self.assertEqual(error.exception.code, 400)
@@ -483,7 +525,7 @@ class HTTPTest(StoreCase):
         self.assertEqual(self.store.export()["tables"], before["tables"])
         with self.call("/api/state") as response:
             value = json.load(response)
-        self.assertEqual([t["id"] for t in value["teachers"]], ["sofia", "aurora", "leonardo"])
+        self.assertEqual([t["id"] for t in value["teachers"]], ["sofia", "serena"])
 
     def test_feedback_english_audio_uses_original_language_and_caches_translation(self):
         sid = self.store.new_session("hello")["id"]

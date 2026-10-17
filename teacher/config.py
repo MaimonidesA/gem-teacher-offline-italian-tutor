@@ -16,11 +16,11 @@ VOICES = {
 TEACHERS = {
     "sofia": {"name": "Sofia", "initial": "S", "description": "Voix italienne familière · Paola",
               "persona": "patient, reassuring and gently humorous", "voice": VOICES["it"][0]},
-    "aurora": {"name": "Aurora", "initial": "A", "description": "Voix expressive · pauses marquées",
-               "persona": "warm, curious and expressive", "voice": RUNTIME / "voices/it-aurora.onnx"},
-    "leonardo": {"name": "Leonardo", "initial": "L", "description": "Voix masculine · autre sonorité",
-                 "persona": "friendly, thoughtful and encouraging", "voice": RUNTIME / "voices/it-leonardo.onnx"},
+    "serena": {"name": "Serena", "initial": "S", "description": "Voix féminine · italien standard",
+               "persona": "warm, curious and encouraging", "voice": RUNTIME / "voices/it-serena.onnx"},
 }
+# Preserve historical speaker labels without exposing the retired voices.
+TEACHER_NAMES = {"aurora": "Aurora", "leonardo": "Leonardo", **{key: value["name"] for key, value in TEACHERS.items()}}
 
 def teacher_catalog():
     return [{"id": key, **{k: value[k] for k in ("name", "initial", "description")},

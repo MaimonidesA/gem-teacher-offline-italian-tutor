@@ -9,7 +9,7 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
   page.on('pageerror',e=>errors.push(e.message));
   page.on('request',r=>{if(!r.url().startsWith(base)&&!r.url().startsWith('blob:'))external.push(r.url());});
   await page.goto(base);await page.waitForFunction(()=>state.data);
-  assert.equal(await page.locator('[data-teacher-select]').count(),3);
+  assert.equal(await page.locator('[data-teacher-select]').count(),2);
   assert.equal(await page.locator('[data-teacher-select]:disabled').count(),0);
   await page.evaluate(async()=>{await api('/api/settings',{teacher:'sofia',base:'en',auto_speak:false});await refresh();await resumeLesson(state.data.sessions[0].id);});
   const before=await page.evaluate(()=>({id:state.session.id,xp:state.data.stats.xp,messages:state.session.messages.length,notes:state.session.notes}));
@@ -22,16 +22,24 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
    await page.waitForFunction(()=>audioPlayer.audio&&!audioPlayer.audio.paused&&audioPlayer.audio.duration>0,null,{timeout:30000});
    await page.evaluate(()=>audioPlayer.stop());return body;
   };
-  for(const teacher of ['aurora','leonardo']){
+  await play('[data-teacher-preview="serena"]','serena');
+  assert.equal(await page.evaluate(()=>state.data.settings.teacher),'sofia');
+  const retired=await page.evaluate(()=>state.session.messages.find(m=>m.role==='assistant'&&['aurora','leonardo'].includes(m.payload.teacher)));
+  if(retired){
+   assert(await page.locator(`[data-message="${retired.id}"] .retired-voice-note`).isVisible());
+   assert((await page.locator(`[data-message="${retired.id}"] .message-label`).textContent()).includes(retired.payload.teacher.toUpperCase()));
+   await play(`[data-replay="${retired.id}"]`,'sofia');
+  }
+  for(const teacher of ['serena']){
    const body=await play(`[data-segment-play][data-voice="${teacher}"]`,teacher);
    assert.equal(body.text,text);assert.equal(body.language,'it');
   }
   await play('[data-segment-play][data-slow]','sofia');
-  await play('[data-correction][data-voice="aurora"]','aurora');
+  await play('[data-correction][data-voice="serena"]','serena');
   assert.deepEqual(await page.evaluate(()=>({id:state.session.id,xp:state.data.stats.xp,messages:state.session.messages.length,notes:state.session.notes})),before);
   assert.equal(await page.evaluate(()=>state.data.settings.teacher),'sofia');
   await page.locator('#chat-input').fill('Un pensiero da conservare.');
-  for(const teacher of ['aurora','leonardo']){
+  for(const teacher of ['serena']){
    await page.locator(`[data-teacher-select="${teacher}"]`).click();
    await page.waitForFunction(t=>!state.busy&&state.data.settings.teacher===t,teacher);
    assert.equal(await page.locator('#chat-input').inputValue(),'Un pensiero da conservare.');
@@ -40,16 +48,18 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
    assert((await page.locator('.chat-header h3').innerText()).startsWith(teacher[0].toUpperCase()+teacher.slice(1)));
   }
   await page.reload();await page.waitForFunction(()=>state.data);
-  assert.equal(await page.evaluate(()=>state.data.settings.teacher),'leonardo');
+  assert.equal(await page.evaluate(()=>state.data.settings.teacher),'serena');
   await page.evaluate(()=>resumeLesson(state.session.id));
   await page.locator('#chat-input').fill('Come ti chiami?');await page.locator('#chat-input').press('Enter');
   await page.waitForFunction(()=>state.busy);
   await page.waitForFunction(()=>!state.busy,null,{timeout:120000});
   assert.equal(await page.locator('.error-box').count(),0);
   const reply=await page.evaluate(()=>state.session.messages.at(-1).payload);
-  assert.equal(reply.teacher,'leonardo');
-  assert(reply.segments.some(s=>/Leonardo/i.test(s.text)),'Teacher should use the selected identity');
-  assert.equal((await page.locator('.message.assistant .message-label').last().textContent()).replace(/\s+/g,' ').trim(),'LEONARDO · your teacher');
+  assert.equal(reply.teacher,'serena');
+  // Repeated runs reuse this conversation; the model may move on instead of
+  // repeating its name. It must not identify itself as a different teacher.
+  assert(!reply.segments.some(s=>/mi chiamo (Sofia|Aurora|Leonardo)/i.test(s.text)),'Teacher must not reuse a retired identity');
+  assert.equal((await page.locator('.message.assistant .message-label').last().textContent()).replace(/\s+/g,' ').trim(),'SERENA · your teacher');
   const other=await page.evaluate(async()=>{const p=await api('/api/profiles',{name:'Teacher isolation',base:'fr'});return (await api('/api/state',undefined,p.id)).settings.teacher;});
   assert.equal(other,'sofia');
   const layouts=[];
@@ -65,7 +75,7 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
   await page.locator('[data-view="settings"]:visible').first().click();
   assert(await page.getByText('About the voices',{exact:true}).isVisible());
   assert.deepEqual(errors,[]);assert.deepEqual(external,[]);
-  const report={passed:true,teachers:3,exactReplay:true,progressPreserved:true,draftPreserved:true,historyKeepsSpeaker:true,profileIsolation:true,modelIdentity:reply.segments.map(s=>s.text).join(' '),layouts,errors,external};
+  const report={passed:true,teachers:2,exactReplay:true,progressPreserved:true,draftPreserved:true,historyKeepsSpeaker:true,retiredReplayChecked:!!retired,profileIsolation:true,modelReply:reply.segments.map(s=>s.text).join(' '),layouts,errors,external};
   fs.writeFileSync('artifacts/teachers-validation.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report));
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

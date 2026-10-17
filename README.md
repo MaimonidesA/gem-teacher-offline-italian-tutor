@@ -1,7 +1,7 @@
 # Gem Teacher · Parliamo
 
 A standalone, offline language tutor for Linux. Learn Italian
-through short conversations with Sofia, Aurora or Leonardo, with French as your support language
+through short conversations with Sofia or Serena, with French as your support language
 and English help when you need it. The learning path, daily goal, notebook and
 reviews take inspiration from language-learning apps; the lessons are real
 conversations with your local Gemma model.
@@ -10,37 +10,48 @@ Switch French/English support whenever you like, practise in guided lessons or
 the coffee room, get written phrase corrections, save expressions, and keep
 separate local learner profiles for the whole household.
 
-## Three teachers, one conversation
+## Two Italian voices, one conversation
 
-Choose **Sofia**, **Aurora** or **Leonardo** in the teacher bar. Your choice is
+Choose **Sofia** or **Serena** in the teacher bar. Use **Listen to a sample**
+to hear the same Italian example before selecting either teacher. Your choice is
 saved separately for each learner. Switching changes the teacher's name, manner
 and Italian voice while retaining the current conversation, draft, lesson progress
 and shared learning notes. Older messages keep their original teacher label.
 
 Under an Italian sentence or correction, **Another voice / Autre voix** lets
-the other two teachers read the exact same text. It only synthesizes speech:
+the other teacher read the exact same text. It only synthesizes speech:
 no extra Gemma request, translation, progress award or change to your main teacher.
-Regular and slow replay retain the original speaker. French and English support
-use the existing shared voices.
+Regular and slow replay retain the original speaker when that voice is available.
+French and English support use the existing shared voices.
 
-Sofia uses Paola; Aurora and Leonardo use the independent
-[Piper Italiano voices by kirys79](https://huggingface.co/kirys79/piper_italiano).
-The author describes Aurora as having a pronounced accent and emphatic pauses,
-but does not identify a region. These voices are **not labelled Roman or Sicilian**.
-They provide different speakers and delivery, not verified regional accent lessons.
+Sofia retains Paola. Serena uses
+[committa's Serena high-quality Italian Piper model](https://huggingface.co/committa/it_IT-serena-high),
+documented as a female Standard Italian voice trained on synthetic Italian speech.
+It uses the model's supplied pronunciation settings, including noise scale 0.6
+and noise width 0.4. Neither teacher is advertised as Roman or Sicilian.
 
-After preparing Piper, install the two additional voices once (about 127 MB):
+The old Aurora and Leonardo voices were removed after poor listening results.
+Saved preferences for those teachers fall back to Sofia. Historical messages keep
+their names and all learning data; their replay uses your current teacher, with
+a visible notice. The installer no longer downloads the rejected models.
+Riccardo was also evaluated but not enabled because its Italian transcription
+check performed worse. Automated transcription is only a screening check, so
+use the sample buttons to judge clarity before a lesson.
+
+After preparing Piper, install Serena once (about 114 MB):
 
 ```bash
 python3 scripts/install_teacher_voices.py
 ```
 
-This explicit installation step needs internet access. It downloads pinned ONNX
-files, checks their SHA-256 hashes, and saves metadata and attribution under
+This explicit installation step needs internet access. It downloads a pinned ONNX
+model and its matching configuration, checks both SHA-256 hashes, and saves attribution under
 `runtime/voices/`. Normal teacher switching and playback work entirely offline.
 Unavailable voices are disabled in the teacher bar. All speech runs on CPU in
 one worker, with at most three loaded voices and a shared 150 MB audio cache.
 Gemma remains the single shared GPU model.
+Previously downloaded `serena.onnx`, `serena.onnx.json`, and `serena-MODEL_CARD.md`
+can instead be installed offline using `--source-dir /path/to/files`.
 
 ## Install from source
 
@@ -358,7 +369,7 @@ sentence takes longer than the first token because synthesis needs its text.
 ```text
 teacher/              Python standard-library server, model, speech and SQLite
 web/                  HTML, CSS, JS, local SVG artwork and audio worklet
-runtime/              copied Piper packages, three voices, Whisper binary/libs/model
+runtime/              Piper packages, installed voices, Whisper binary/libs/model
 data/learning.sqlite3  conversations, progress, phrases, reviews and preferences
 data/speech/          generated voice cache, capped at approximately 150 MB
 data/server.log       local service request log (no request bodies)

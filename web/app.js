@@ -56,12 +56,16 @@ async function checkHealth() {
 }
 function sessionKey(profileId=state.profileId){return 'parliamo-session:'+profileId;}
 function teacherInfo(id=state.data?.settings.teacher){
-  return state.data?.teachers?.find(t=>t.id===id)||{id:'sofia',name:'Sofia',initial:'S'};
+  const name=state.data?.teacher_names?.[id]||'Sofia';
+  return state.data?.teachers?.find(t=>t.id===id)||{id:id||'sofia',name,initial:name[0]};
+}
+function replayTeacher(id='sofia'){
+  return state.data.teachers.some(t=>t.id===id)?id:state.data.settings.teacher;
 }
 function renderTeachers(){
   const strip=$('#teacher-strip');if(!strip||!state.data?.teachers)return;
   strip.hidden=false;
-  strip.innerHTML=`<div class="teacher-strip-heading"><strong>Votre professeur</strong><span>Même conversation, trois voix italiennes.</span></div><div class="teacher-choices">${state.data.teachers.map(t=>`<button class="teacher-choice ${t.id}" data-teacher-select="${t.id}" aria-pressed="${t.id===state.data.settings.teacher}" ${!t.available?'disabled':''}><span class="teacher-avatar" data-verbatim>${t.initial}</span><span><strong data-verbatim>${t.name}</strong><small>${t.available?esc(t.description):'Voix à installer'}</small></span>${t.id===state.data.settings.teacher?icon('check'):''}</button>`).join('')}</div>`;
+  strip.innerHTML=`<div class="teacher-strip-heading"><strong>Votre professeur</strong><span>Écoutez un exemple avant de choisir.</span></div><div class="teacher-choices">${state.data.teachers.map(t=>`<div class="teacher-option"><button class="teacher-choice ${t.id}" data-teacher-select="${t.id}" aria-pressed="${t.id===state.data.settings.teacher}" ${!t.available?'disabled':''}><span class="teacher-avatar" data-verbatim>${t.initial}</span><span><strong data-verbatim>${t.name}</strong><small>${t.available?esc(t.description):'Voix à installer'}</small></span>${t.id===state.data.settings.teacher?icon('check'):''}</button><button class="teacher-sample" data-teacher-preview="${t.id}" ${!t.available?'disabled data-unavailable="true"':''}>${icon('volume')} Écouter un exemple</button></div>`).join('')}</div>`;
 }
 async function switchTeacher(id){
   if(state.busy||state.translating)return toast('Attendez la fin de la réponse pour changer de professeur.');
@@ -76,7 +80,7 @@ async function switchTeacher(id){
   finally{state.busy=false;state.handsfree=handsfree;if($('#handsfree'))$('#handsfree').checked=handsfree;maybeListen();}
 }
 function otherVoiceButtons(messageId,index,original='sofia',correction=false){
-  return `<span class="voice-comparison-label">Autre voix :</span>${(state.data.teachers||[]).filter(t=>t.id!==original).map(t=>`<button ${correction?'data-correction':'data-segment-play'}="${messageId}" data-index="${index}" data-voice="${t.id}" ${!t.available?'disabled data-unavailable="true"':''} title="Même phrase, autre voix">${icon('volume')} <span data-verbatim>${t.name}</span></button>`).join('')}`;
+  return `<span class="voice-comparison-label">Autre voix :</span>${(state.data.teachers||[]).filter(t=>t.id!==replayTeacher(original)).map(t=>`<button ${correction?'data-correction':'data-segment-play'}="${messageId}" data-index="${index}" data-voice="${t.id}" ${!t.available?'disabled data-unavailable="true"':''} title="Même phrase, autre voix">${icon('volume')} <span data-verbatim>${t.name}</span></button>`).join('')}`;
 }
 function draftKey(){return 'parliamo-draft:'+state.profileId+':'+state.session?.id;}
 async function savedSession(profileId, target){
@@ -200,7 +204,7 @@ function renderSettings() {
   renderPhonePanel(panel,state.data.network);
   updatePhonePanel(panel);
   const note=document.createElement('section');note.className='panel teacher-note';
-  note.innerHTML='<h3>À propos des voix</h3><p>Trois voix italiennes distinctes. Leur région n’est pas certifiée : elles ne sont pas étiquetées romaine ou sicilienne. Les voix françaises et anglaises restent les mêmes.</p><p>Les boutons « Autre voix » relisent exactement la même phrase sans changer votre professeur ni vos progrès.</p>';
+  note.innerHTML='<h3>À propos des voix</h3><p>Sofia utilise Paola. Serena utilise une voix féminine en italien standard, sans accent régional annoncé. Les anciennes voix Aurora et Leonardo ont été retirées. Les voix françaises et anglaises restent les mêmes.</p><p>Les boutons « Autre voix » relisent exactement la même phrase sans changer votre professeur ni vos progrès.</p>';
   $('.settings-grid>aside').append(note);
 }
 function renderPhonePanel(panel,network){
@@ -303,7 +307,8 @@ function assessmentHtml(assessment, id, teacher='sofia') {
 }
 function renderMessage(message) {
   const user=message.role==='user', result=message.payload;
-  return `<article class="message ${user?'user':'assistant'}" data-message="${message.id}"><div class="message-label">${user?(result.action==='topic'?'NOUVEAU SUJET':'VOUS'):`<span data-verbatim>${esc(teacherInfo(result.teacher||'sofia').name.toUpperCase())}</span>`}${!user?' · votre professeur':''}</div><div class="bubble">${user?esc(message.content):result.segments?.map((segment,i)=>segmentHtml(segment,i,message)).join('')||esc(message.content)}</div>${user?assessmentHtml(result.assessment,message.id,result.teacher||'sofia'):`<div class="message-actions"><button data-replay="${message.id}">${icon('volume')} Réécouter</button><button data-save-message="${message.id}">${icon('bookmark')} Garder</button><button data-feedback="${message.id}">${icon('flag')} Une remarque</button></div>`}</article>`;
+  const retired=!user&&result.teacher&&!state.data.teachers.some(t=>t.id===result.teacher);
+  return `<article class="message ${user?'user':'assistant'}" data-message="${message.id}"><div class="message-label">${user?(result.action==='topic'?'NOUVEAU SUJET':'VOUS'):`<span data-verbatim>${esc(teacherInfo(result.teacher||'sofia').name.toUpperCase())}</span>`}${!user?' · votre professeur':''}</div><div class="bubble">${user?esc(message.content):result.segments?.map((segment,i)=>segmentHtml(segment,i,message)).join('')||esc(message.content)}</div>${user?assessmentHtml(result.assessment,message.id,result.teacher||'sofia'):`${retired?'<p class="retired-voice-note">Ancienne voix retirée : lecture avec votre professeur actuel.</p>':''}<div class="message-actions"><button data-replay="${message.id}">${icon('volume')} Réécouter</button><button data-save-message="${message.id}">${icon('bookmark')} Garder</button><button data-feedback="${message.id}">${icon('flag')} Une remarque</button></div>`}</article>`;
 }
 function segmentKind(segment,action='reply') {
   if(['dialogue','instruction','translation'].includes(segment.kind))return segment.kind;
@@ -344,7 +349,7 @@ function renderLessonDetails() {
   const m=result?.metrics;if(m&&$('#metrics'))$('#metrics').innerHTML=`Premier token · ${(m.first_token_ms/1000).toFixed(1)} s<br>Réponse complète · ${(m.total_ms/1000).toFixed(1)} s<br>${m.tokens_per_second} tokens/s · ${esc(m.input==='native_audio'?'Audio direct':m.input==='whisper'?'Whisper + Gemma':'Texte')}${m.transcription_ms?`<br>Transcription · ${(m.transcription_ms/1000).toFixed(1)} s`:''}`;
 }
 function scrollChat() { const messages=$('#messages');if(messages)messages.scrollTop=messages.scrollHeight; }
-function busyUI(busy) { state.busy=busy;$$('[data-help],#composer button,#chat-input,[data-translation],[data-segment-play],[data-replay],[data-correction],[data-explanation]').forEach(e=>e.disabled=busy||e.dataset.unavailable==='true');if($('#finish-button'))$('#finish-button').disabled=busy||state.session.turns<3||!!state.session.finished;$('#target-language').disabled=busy;$('#support-language').disabled=busy; }
+function busyUI(busy) { state.busy=busy;$$('[data-help],#composer button,#chat-input,[data-teacher-preview],[data-translation],[data-segment-play],[data-replay],[data-correction],[data-explanation]').forEach(e=>e.disabled=busy||e.dataset.unavailable==='true');if($('#finish-button'))$('#finish-button').disabled=busy||state.session.turns<3||!!state.session.finished;$('#target-language').disabled=busy;$('#support-language').disabled=busy; }
 async function startLesson(topic) {
   if(state.busy||state.translating)return;
   stopRecording(false);audioPlayer.stop();state.handsfree=false;
@@ -511,6 +516,11 @@ document.addEventListener('click',async event=>{
     if(button.matches('.modal-close'))return $('#modal').close();
     if(button.dataset.switchProfile)return await switchProfile(button.dataset.switchProfile);
     if(button.dataset.teacherSelect)return await switchTeacher(button.dataset.teacherSelect);
+    if(button.dataset.teacherPreview){
+      if(state.busy||state.translating)return;
+      await stopRecording(false);audioPlayer.stop();
+      audioPlayer.enqueue({text:'Buongiorno! Vorrei un caffè, per favore. Puoi parlare più lentamente?',language:'it',teacher:button.dataset.teacherPreview});return;
+    }
     if(button.dataset.view){event.preventDefault();return setView(button.dataset.view);}
     if(button.matches('.brand')){event.preventDefault();return setView('learn');}
     if(button.dataset.coffeeIdea!==undefined)return await startCoffee(coffeeIdeas[Number(button.dataset.coffeeIdea)].subject);
@@ -521,9 +531,9 @@ document.addEventListener('click',async event=>{
     if(button.id==='mic-button'){if(state.recorder)return await stopRecording(true);return await startRecording(false);}
     if(button.dataset.translation)return await playTranslation(button);
     if(button.dataset.explanation)return await playExplanation(button);
-    if(button.dataset.segmentPlay){if(state.busy||state.translating)return;const m=state.session.messages.find(m=>m.id===button.dataset.segmentPlay);await stopRecording(false);audioPlayer.stop();audioPlayer.enqueue({...m.payload.segments[Number(button.dataset.index)],teacher:button.dataset.voice||m.payload.teacher||'sofia',slow:button.dataset.slow==='true'});return;}
-    if(button.dataset.correction){if(state.busy||state.translating)return;const m=state.session.messages.find(m=>m.id===button.dataset.correction);await stopRecording(false);audioPlayer.stop();audioPlayer.enqueue({language:state.session.target,text:m.payload.assessment.corrected,teacher:button.dataset.voice||m.payload.teacher||'sofia',slow:button.dataset.slow==='true'});return;}
-    if(button.dataset.replay){if(state.busy||state.translating)return;const m=state.session.messages.find(m=>m.id===button.dataset.replay);await stopRecording(false);audioPlayer.stop();for(const s of m.payload.segments)if(shouldSpeak(s,m.payload.action))audioPlayer.enqueue({...s,teacher:m.payload.teacher||'sofia'});return;}
+    if(button.dataset.segmentPlay){if(state.busy||state.translating)return;const m=state.session.messages.find(m=>m.id===button.dataset.segmentPlay);await stopRecording(false);audioPlayer.stop();audioPlayer.enqueue({...m.payload.segments[Number(button.dataset.index)],teacher:button.dataset.voice||replayTeacher(m.payload.teacher||'sofia'),slow:button.dataset.slow==='true'});return;}
+    if(button.dataset.correction){if(state.busy||state.translating)return;const m=state.session.messages.find(m=>m.id===button.dataset.correction);await stopRecording(false);audioPlayer.stop();audioPlayer.enqueue({language:state.session.target,text:m.payload.assessment.corrected,teacher:button.dataset.voice||replayTeacher(m.payload.teacher||'sofia'),slow:button.dataset.slow==='true'});return;}
+    if(button.dataset.replay){if(state.busy||state.translating)return;const m=state.session.messages.find(m=>m.id===button.dataset.replay);await stopRecording(false);audioPlayer.stop();for(const s of m.payload.segments)if(shouldSpeak(s,m.payload.action))audioPlayer.enqueue({...s,teacher:replayTeacher(m.payload.teacher||'sofia')});return;}
     if(button.dataset.saveMessage){const m=state.session.messages.find(m=>m.id===button.dataset.saveMessage);return wordModal({...phraseForBase(m.payload),target:state.session.target});}
     if(button.dataset.feedback){showModal(`<h2>Une idée pour mieux apprendre ?</h2><p>Ce retour sera conservé avec la conversation pour améliorer vos futures leçons.</p><form id="feedback-form"><div class="field"><label for="feedback-note">Votre remarque</label><textarea class="input" id="feedback-note" required maxlength="2000" placeholder="L’explication était trop longue. J’aimerais un autre exemple…"></textarea></div><button class="button" type="submit">Garder ce retour</button></form>`);const mid=button.dataset.feedback;$('#feedback-form').onsubmit=async e=>{e.preventDefault();try{await api('/api/feedback',{session_id:state.session.id,message_id:mid,note:$('#feedback-note').value});$('#modal').close();toast('Votre retour est sauvegardé.');}catch(error){toast(errorText(error));}};return;}
     if(button.dataset.speakBook){const b=state.data.bookmarks.find(b=>b.id===button.dataset.speakBook);audioPlayer.stop();audioPlayer.enqueue({text:b.text,language:b.target});return;}

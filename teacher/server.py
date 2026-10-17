@@ -40,7 +40,7 @@ def settings_values(data):
 
 def health(store):
     prefs = store.settings()
-    result = {"application": "parliamo", "version": "0.7.0", "busy": TURN_LOCK.locked(), "online": False, "model": prefs["model"], "models": [], "placement": "Non chargé", "audio": False,
+    result = {"application": "parliamo", "version": "0.7.1", "busy": TURN_LOCK.locked(), "online": False, "model": prefs["model"], "models": [], "placement": "Non chargé", "audio": False,
               "voices": {lang: p.is_file() for lang, (p, _) in config.VOICES.items()},
               "whisper": (config.RUNTIME / "whisper/bin/whisper-cli").is_file()}
     try:
@@ -142,7 +142,7 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith("/api/"):
                 profile, store = self.server.profiles.resolve(self.headers.get("X-Parliamo-Profile", "default"))
             if path == "/api/state":
-                return self.json({**store.dashboard(), "topics": TOPICS, "profile": profile, "network": self.server.phone, "teachers": config.teacher_catalog()})
+                return self.json({**store.dashboard(), "topics": TOPICS, "profile": profile, "network": self.server.phone, "teachers": config.teacher_catalog(), "teacher_names": config.TEACHER_NAMES})
             if path == "/api/health":
                 return self.json(health(store))
             if path == "/api/export":
