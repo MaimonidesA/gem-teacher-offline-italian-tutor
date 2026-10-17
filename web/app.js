@@ -141,7 +141,7 @@ function topicCard(topic, recommended) {
 function renderLearn() {
   const {settings,stats,topics,bookmarks,sessions} = state.data;
   const next = topics.find(t => !state.data.completed_topics.includes(t.id)) || topics[0];
-  const resume = sessions.find(s => s.turns > 0);
+  const resume = sessions.find(s => s.turns > 0 && s.mode==='lesson' && !s.finished);
   const percent = Math.min(1,stats.today_xp/settings.daily_goal);
   const dayNames = ['D','L','M','M','J','V','S'];
   const word = bookmarks[0];
@@ -169,6 +169,7 @@ function renderNotebook() {
     <div class="view-toolbar"><input id="book-search" class="input search" placeholder="Chercher un mot, une expression…" aria-label="Chercher dans le carnet" value="${esc(state.search)}"><div style="display:flex;gap:10px"><button class="button secondary" data-action="add-word">${icon('plus')} Ajouter</button><button class="button" data-action="review" ${state.data.stats.due?'':'disabled'}>Réviser · ${state.data.stats.due}</button></div></div>
     ${books.length?`<div class="book-grid">${books.map(b=>`<article class="word-card"><div class="word-heading"><h3>${esc(b.text)}</h3><button class="icon-button" data-speak-book="${b.id}" aria-label="Écouter cette expression">${icon('volume')}</button></div><p>${esc(b.translation)}</p>${b.english?`<p class="english">EN · ${esc(b.english)}</p>`:''}${b.note?`<p class="word-note">${esc(b.note)}</p>`:''}<div class="word-card-bottom"><span class="due-pill">${b.due<=localDay()?'À revoir':`À revoir le ${new Date(b.due+'T12:00:00').toLocaleDateString('fr-FR',{day:'numeric',month:'short'})}`}</span><div><button class="icon-button" data-edit-book="${b.id}" aria-label="Modifier la note">${icon('book')}</button><button class="icon-button" data-delete-book="${b.id}" aria-label="Supprimer cette expression">${icon('trash')}</button></div></div></article>`).join('')}</div>`:
     `<div class="empty-state">${icon('bookmark')}<h3>${state.search?'Aucun mot ne correspond.':'Vos premiers mots vous attendent.'}</h3><p>En conversation, touchez « Garder » pour retrouver une expression ici. Vous pouvez aussi ajouter vos propres découvertes.</p><button class="button" data-action="add-word">Ajouter une expression ${icon('plus')}</button></div>`}`;
+  $('#app').insertAdjacentHTML('beforeend',lessonLibrary());
   $('#book-search').addEventListener('input', event => { const position=event.target.selectionStart; state.search=event.target.value; renderNotebook(); $('#book-search').focus(); $('#book-search').setSelectionRange(position,position); });
 }
 function localDay() { const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
@@ -181,7 +182,7 @@ function renderProgress() {
   const {stats,settings,sessions,bookmarks}=state.data; const done=sessions.filter(s=>s.finished); const max=Math.max(30,...stats.week.map(d=>d.xp));
   $('#app').innerHTML=`<div class="page-intro"><div class="eyebrow">LES PETITS PAS COMPTENT</div><h1>Regardez le chemin parcouru.</h1><p>Votre pratique en ${names[settings.target]}, conversation après conversation.</p></div><div class="stats-grid">${[['spark',stats.xp,'XP de pratique'],['flame',stats.streak,'jours de suite'],['check',stats.lessons,'leçons terminées'],['bookmark',bookmarks.length,'expressions gardées']].map(([ic,val,label])=>`<div class="stat-card">${icon(ic)}<strong>${val}</strong><span>${label}</span></div>`).join('')}</div>
     <div class="progress-layout"><section class="panel"><div class="panel-title"><h3>Votre semaine en mots</h3><span class="eyebrow">XP / JOUR</span></div><div class="chart">${stats.week.map(d=>`<div class="bar-wrap"><span>${d.xp||'–'}</span><div class="bar" style="height:${Math.max(3,d.xp/max*110)}px"></div><span class="bar-label">${new Date(d.day+'T12:00:00').toLocaleDateString('fr-FR',{weekday:'short'})}</span></div>`).join('')}</div></section><section class="panel"><div class="panel-title"><h3>Votre niveau de travail</h3><span class="level-label">${settings.level}</span></div><div class="level-path">${['A0','A1','A2','B1','B2'].map((level,i)=>`<div class="level-step ${i<=['A0','A1','A2','B1','B2'].indexOf(settings.level)?'on':''}" title="${level}"></div>`).join('')}</div><p class="subtle">Sofia adapte la difficulté à vos réponses. Le niveau choisi est un repère de pratique, pas une certification.</p><button class="text-button" data-view="settings" style="margin-top:20px">Ajuster mon niveau ${icon('arrow')}</button></section>
-    ${notesPanel(state.data.memory?.notes)}<section class="panel" style="grid-column:1/-1"><div class="section-heading"><h3>Vos dernières conversations</h3><button class="text-button" data-action="export">${icon('download')} Exporter mes données</button></div>${sessions.length?sessions.slice(0,12).map(s=>`<div class="history-item"><div><strong>${esc(s.mode==='coffee'?'☕ '+(s.subject||'Le salon café'):state.data.topics.find(t=>t.id===s.topic)?.title)}</strong><p>${new Date(s.started).toLocaleDateString('fr-FR',{day:'numeric',month:'long'})} · ${s.turns} réponses · ${s.mode==='coffee'?'Salon café · discussion libre':s.finished?'Leçon validée · conversation ouverte':'Leçon en cours'}</p></div><div style="text-align:right"><span>+${s.xp} XP</span><br><button class="text-button" data-resume="${s.id}">Reprendre ${icon('arrow')}</button></div></div>`).join(''):'<p class="subtle" style="padding:20px 0">Votre première conversation écrira le début de cette histoire.</p>'}</section></div>`;
+    ${notesPanel(state.data.memory?.notes)}<section class="panel" style="grid-column:1/-1"><div class="section-heading"><h3>Vos dernières conversations</h3><button class="text-button" data-action="export">${icon('download')} Exporter mes données</button></div>${sessions.length?sessions.slice(0,12).map(s=>`<div class="history-item"><div><strong>${esc(s.mode==='coffee'?'☕ '+(s.subject||'Le salon café'):state.data.topics.find(t=>t.id===s.topic)?.title)}</strong><p>${new Date(s.started).toLocaleDateString('fr-FR',{day:'numeric',month:'long'})} · ${s.turns} réponses · ${s.mode==='coffee'?'Salon café · discussion libre':lessonStatus(s.lesson)}</p></div><div style="text-align:right"><span>+${s.xp} XP</span><br>${s.lesson?`<button class="text-button" data-lesson-recap="${s.id}">${lessonCopy('Bilan et mots','Recap & words')}</button><br>`:''}<button class="text-button" data-resume="${s.id}">Reprendre ${icon('arrow')}</button></div></div>`).join(''):'<p class="subtle" style="padding:20px 0">Votre première conversation écrira le début de cette histoire.</p>'}</section></div>`;
 }
 function renderSettings() {
   const s=state.data.settings, h=state.health;
@@ -282,10 +283,10 @@ function renderConversation() {
   const coffee=session.mode==='coffee';
   const topic=state.data.topics.find(t=>t.id===session.topic);
   const last=[...session.messages].reverse().find(m=>m.role==='assistant');state.lastResult=last?.payload||null;
-  $('#app').innerHTML=`<div class="conversation-layout"><section class="chat-panel ${coffee?'coffee-chat':''}"><header class="chat-header"><div class="avatar">${esc(teacherInfo().initial)}</div><div><h3>Sofia · ${coffee?'le salon café':esc(topic.title)}</h3><p id="chat-language-caption">${flags[session.target]} ${esc(names[session.target])} · appui en ${esc(names[session.base])}</p></div><div class="chat-header-actions"><span class="level-label">${session.level}</span><button class="icon-button" data-action="stop-audio" aria-label="Arrêter la voix et la réponse" title="Arrêter la voix et la réponse">${icon('stop')}</button></div></header>
+  $('#app').innerHTML=`<div id="lesson-plan"></div><div class="conversation-layout"><section class="chat-panel ${coffee?'coffee-chat':''}"><header class="chat-header"><div class="avatar">${esc(teacherInfo().initial)}</div><div><h3>Sofia · ${coffee?'le salon café':esc(topic.title)}</h3><p id="chat-language-caption">${flags[session.target]} ${esc(names[session.target])} · appui en ${esc(names[session.base])}</p></div><div class="chat-header-actions"><span class="level-label">${session.level}</span><button class="icon-button" data-action="stop-audio" aria-label="Arrêter la voix et la réponse" title="Arrêter la voix et la réponse">${icon('stop')}</button></div></header>
     <div id="messages" class="messages" role="log" aria-live="polite" aria-label="Conversation avec Sofia">${chatIntro(session)}${session.messages.map(renderMessage).join('')}<div id="live-response"></div></div>
     <div id="lesson-milestone" class="lesson-milestone" role="status"></div><div class="composer-wrap"><div class="help-row"><button class="help-chip" data-help="hint">Un petit indice</button><button class="help-chip" data-help="simplify">Plus simple, s’il vous plaît</button>${session.base==='fr'?'<button class="help-chip" data-help="english">Help in English</button>':''}</div><div class="voice-indicator" id="voice-indicator"></div><form id="composer" class="composer"><button class="mic-button" type="button" id="mic-button" aria-label="Commencer un enregistrement" title="Cliquez pour parler, recliquez pour envoyer">${icon('mic')}</button><textarea id="chat-input" aria-label="Votre réponse" placeholder="Écrivez… ou osez le dire à voix haute." maxlength="2500" rows="1"></textarea><button class="button send-button" type="submit" aria-label="Envoyer">${icon('send')}</button></form><div class="composer-meta"><label class="voice-toggle"><input type="checkbox" id="handsfree" ${state.handsfree?'checked':''}> Voix ouverte</label><span id="turn-status">Votre micro reste sur cet ordinateur</span></div></div></section>
-    <aside class="lesson-side">${coffee?coffeeSidebar(session):`<section class="panel"><div class="panel-title"><h3>Votre petite mission</h3>${icon(topic.icon)}</div><p class="lesson-goal">${esc(topic.description)}</p><div class="lesson-counter" id="lesson-counter">${[0,1,2].map(i=>`<span class="${session.turns>i?'filled':''}"></span>`).join('')}</div><p class="subtle" id="turn-count">${session.turns} échange${session.turns>1?'s':''} · 3 réponses minimum · validation selon vos acquis</p><button class="button secondary small" id="finish-button" data-action="finish" ${session.turns<3||session.finished?'disabled':''}>${icon('check')} Valider et continuer</button><button class="text-button" data-action="choose-topic" style="margin-top:17px">Choisir un autre sujet ${icon('arrow')}</button></section>`}
+    <aside class="lesson-side">${coffee?coffeeSidebar(session):'<section class="panel" id="lesson-resources"></section>'}
 
     <div id="level-suggestion"></div><div id="teacher-notes"></div><section class="panel notebook-panel" id="phrase-panel"></section><section class="panel" id="correction-panel"></section><div class="metrics" id="metrics">Audio ${state.data.settings.audio_mode==='native'?'direct vers Gemma':'via Whisper'} · réponse progressive<br>La difficulté suit votre compréhension.</div></aside></div>`;
   renderLessonDetails();
@@ -334,8 +335,11 @@ function renderLessonDetails() {
   $('#correction-panel').innerHTML=`<h3>Un petit coup de pouce</h3>${result?.correction?`<p class="correction">${esc(result.correction)}</p>`:'<p class="subtle" style="margin-top:12px">Cherchez vos mots tranquillement. Sofia vous aide, une idée à la fois.</p>'}${result?.focus?`<div class="eyebrow" style="margin-top:15px;font-size:8px;color:#a1ad8c">${esc(result.focus)}</div>`:''}`;
   if($('#coffee-current-subject'))$('#coffee-current-subject').textContent=session.subject||'Au fil de vos envies';
   if($('#coffee-count'))$('#coffee-count').textContent=`${session.turns} échanges · vos mots font leur chemin`;
-  if($('#turn-count'))$('#turn-count').textContent=session.finished?`${session.turns} échanges · la conversation continue`:`${session.turns} échanges · 3 réponses minimum, puis validation selon vos acquis`;
-  if($('#lesson-milestone')){$('#lesson-milestone').hidden=session.mode==='coffee'||!session.finished;$('#lesson-milestone').innerHTML=session.finished?`${icon('check')} <div><strong>Leçon validée · bravissimo !</strong><span>Continuez avec Sofia, ou choisissez un autre sujet quand vous le souhaitez.</span></div>`:'';}
+  renderLessonPlan();
+  if($('#lesson-milestone')){
+    $('#lesson-milestone').hidden=session.mode==='coffee'||!session.finished;
+    $('#lesson-milestone').innerHTML=session.finished?`${icon('check')}<div><strong data-verbatim>${lessonStatus(session.lesson)}</strong><span>${lessonCopy('Votre bilan est sauvegardé. À vous de choisir la suite.','Your recap is saved. Choose what comes next.')}</span><div class="milestone-actions"><button class="text-button" data-action="keep-chatting">${lessonCopy('Continuer à discuter','Keep chatting')}</button><button class="text-button" data-lesson-recap="${session.id}">${lessonCopy('Bilan et vocabulaire','Recap & vocabulary')}</button>${session.lesson?.status==='achieved'?nextLessonButton(session):''}</div></div>`:'';
+  }
   if($('#level-suggestion')){
     const scores=session.messages.filter(m=>m.role==='assistant'&&m.payload.action==='reply'&&m.payload.assessment?.rating!=null).slice(-8).map(m=>m.payload.score);
     const mean=scores.reduce((a,b)=>a+b,0)/Math.max(1,scores.length),levels=['A0','A1','A2','B1','B2'],current=levels.indexOf(session.level);
@@ -343,21 +347,18 @@ function renderLessonDetails() {
     $('#level-suggestion').innerHTML=suggested!==session.level&&suggested!==state.data.settings.level?`<section class="panel"><h3>Pour la prochaine leçon</h3><p class="subtle" style="margin:12px 0">Vos derniers échanges suggèrent d’essayer ${suggested}. À vous de choisir votre rythme.</p><button class="button secondary small" data-suggest-level="${suggested}">Essayer ${suggested}</button></section>`:'';
   }
   if($('#teacher-notes'))$('#teacher-notes').innerHTML=notesPanel(session.notes?.summary?session.notes:state.data.memory?.notes);
-  if($('#finish-button'))$('#finish-button').innerHTML=session.finished?`${icon('check')} Objectif validé`:`${icon('check')} Valider et continuer`;
-  if($('#lesson-counter'))$('#lesson-counter').innerHTML=[0,1,2].map(i=>`<span class="${session.turns>i?'filled':''}"></span>`).join('');
-  if($('#finish-button'))$('#finish-button').disabled=session.turns<3||!!session.finished||state.busy;
   const m=result?.metrics;if(m&&$('#metrics'))$('#metrics').innerHTML=`Premier token · ${(m.first_token_ms/1000).toFixed(1)} s<br>Réponse complète · ${(m.total_ms/1000).toFixed(1)} s<br>${m.tokens_per_second} tokens/s · ${esc(m.input==='native_audio'?'Audio direct':m.input==='whisper'?'Whisper + Gemma':'Texte')}${m.transcription_ms?`<br>Transcription · ${(m.transcription_ms/1000).toFixed(1)} s`:''}`;
 }
 function scrollChat() { const messages=$('#messages');if(messages)messages.scrollTop=messages.scrollHeight; }
-function busyUI(busy) { state.busy=busy;$$('[data-help],#composer button,#chat-input,[data-teacher-preview],[data-translation],[data-segment-play],[data-replay],[data-correction],[data-explanation]').forEach(e=>e.disabled=busy||e.dataset.unavailable==='true');if($('#finish-button'))$('#finish-button').disabled=busy||state.session.turns<3||!!state.session.finished;$('#target-language').disabled=busy;$('#support-language').disabled=busy; }
+function busyUI(busy) { state.busy=busy;$$('[data-help],#composer button,#chat-input,[data-teacher-preview],[data-translation],[data-segment-play],[data-replay],[data-correction],[data-explanation]').forEach(e=>e.disabled=busy||e.dataset.unavailable==='true');if($('#finish-button'))$('#finish-button').disabled=busy||(!state.session.finished&&!state.session.turns);$('#target-language').disabled=busy;$('#support-language').disabled=busy; }
 async function startLesson(topic) {
   if(state.busy||state.translating)return;
-  stopRecording(false);audioPlayer.stop();state.handsfree=false;
+  $('#modal').close();stopRecording(false);audioPlayer.stop();state.handsfree=false;
   state.session=await api('/api/sessions',{topic});localStorage.setItem(sessionKey(),state.session.id);state.view='conversation';render();await sendTurn('start');
 }
 async function resumeLesson(id) {
   if(state.busy||state.translating)return;
-  stopRecording(false);audioPlayer.stop();state.handsfree=false;
+  $('#modal').close();stopRecording(false);audioPlayer.stop();state.handsfree=false;
   state.session=await api('/api/sessions/'+encodeURIComponent(id));localStorage.setItem(sessionKey(),id);state.view=state.session.mode==='coffee'?'coffee':'conversation';render();if(!state.session.messages.length&&!state.session.finished)await sendTurn('start');
 }
 async function sendTurn(action,text='',audio=null) {
@@ -382,7 +383,8 @@ async function sendTurn(action,text='',audio=null) {
       if(event.type==='done'){
         done=true;state.session=event.session;state.lastResult=event.result;
         const messages=$('#messages');messages.innerHTML=`${chatIntro(state.session)}${state.session.messages.map(renderMessage).join('')}<div id="live-response"></div>`;
-        renderLessonDetails();scrollChat();await refresh();if(event.just_completed)toast('Leçon validée ! La conversation continue.');else if(event.xp)toast(`+${event.xp} XP · Un pas de plus !`);
+        if(event.just_completed){state.handsfree=false;if($('#handsfree'))$('#handsfree').checked=false;}
+        await refresh();renderLessonDetails();scrollChat();if(event.just_completed)toast(lessonCopy('Objectifs atteints ! Votre bilan est prêt.','Goals achieved! Your recap is ready.'));else if(event.xp)toast(`+${event.xp} XP · Un pas de plus !`);
       }
     }
     while(true){const chunk=await reader.read();if(chunk.done)break;buffer+=decoder.decode(chunk.value,{stream:true});let index;while((index=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,index);buffer=buffer.slice(index+1);if(line.trim())await handle(JSON.parse(line));}}
@@ -396,13 +398,13 @@ async function sendTurn(action,text='',audio=null) {
   } finally {state.controller=null;busyUI(false);renderLessonDetails();checkHealth();if(!audioPlayer.active)maybeListen();}
 }
 async function finishLesson() {
-  if(state.busy)return;
-  busyUI(true);
+  if(state.busy||state.translating)return;
+  if(state.session.finished)return openLessonRecap(state.session.id);
+  busyUI(true);state.handsfree=false;if($('#handsfree'))$('#handsfree').checked=false;
   await stopRecording(false);audioPlayer.stop();
-  try {state.session=await api('/api/finish',{session_id:state.session.id});await refresh();renderLessonDetails();}
-  finally {busyUI(false);}
-  toast('Leçon validée. On garde le fil avec Sofia !');
-  maybeListen();
+  try {state.session=await api('/api/finish',{session_id:state.session.id});await refresh();}
+  finally {busyUI(false);renderLessonDetails();}
+  await openLessonRecap(state.session.id);
 }
 async function playTranslation(button) {
   if(state.busy||state.translating)return toast('Un instant, Sofia termine sa réponse.');
@@ -514,6 +516,7 @@ document.addEventListener('click',async event=>{
   const button=event.target.closest('button,a');if(!button)return;
   try{
     if(button.matches('.modal-close'))return $('#modal').close();
+    if(await lessonClick(button))return;
     if(button.dataset.switchProfile)return await switchProfile(button.dataset.switchProfile);
     if(button.dataset.teacherSelect)return await switchTeacher(button.dataset.teacherSelect);
     if(button.dataset.teacherPreview){
@@ -558,6 +561,7 @@ document.addEventListener('click',async event=>{
       case 'coffee-topic':return coffeeTopicModal();
       case 'coffee-lobby':if(state.busy||state.translating)return;state.handsfree=false;await stopRecording(false);audioPlayer.stop();state.session=null;await refresh();return renderCoffee();
       case 'finish':return await finishLesson();
+      case 'keep-chatting':$('#chat-input')?.focus();return;
       case 'choose-topic':if(state.busy)return toast('Attendez la réponse ou arrêtez-la.');state.handsfree=false;await stopRecording(false);audioPlayer.stop();state.session=null;return renderConversation();
       case 'stop-audio':state.handsfree=false;if($('#handsfree'))$('#handsfree').checked=false;await stopRecording(false);audioPlayer.stop();state.controller?.abort();return;
       case 'retry':{const r=state.lastRequest;if(r)return await sendTurn(r.action,r.text,r.audio);return;}

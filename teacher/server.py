@@ -40,7 +40,7 @@ def settings_values(data):
 
 def health(store):
     prefs = store.settings()
-    result = {"application": "parliamo", "version": "0.7.1", "busy": TURN_LOCK.locked(), "online": False, "model": prefs["model"], "models": [], "placement": "Non chargé", "audio": False,
+    result = {"application": "parliamo", "version": "0.8.0", "busy": TURN_LOCK.locked(), "online": False, "model": prefs["model"], "models": [], "placement": "Non chargé", "audio": False,
               "voices": {lang: p.is_file() for lang, (p, _) in config.VOICES.items()},
               "whisper": (config.RUNTIME / "whisper/bin/whisper-cli").is_file()}
     try:
@@ -191,10 +191,16 @@ class Handler(BaseHTTPRequestHandler):
                     TURN_LOCK.release()
             if path == "/api/sessions":
                 return self.json(store.new_session(data.get("topic"), data.get("mode", "lesson"), data.get("subject", "")))
-            if path == "/api/finish":
-                if TURN_LOCK.locked():
+            if path in ("/api/finish", "/api/resume-objectives", "/api/lesson-review"):
+                if not TURN_LOCK.acquire(blocking=False):
                     return self.json({"error": "Attendez la fin de la réponse."}, 409)
-                return self.json(store.finish(str(data.get("session_id", ""))))
+                try:
+                    sid = str(data.get("session_id", ""))
+                    if path == "/api/lesson-review":
+                        return self.json(store.review_lesson(sid, data.get("index"), data.get("remembered")))
+                    return self.json(store.finish(sid) if path == "/api/finish" else store.resume_objectives(sid))
+                finally:
+                    TURN_LOCK.release()
             if path == "/api/turn":
                 return self.turn(data)
             if path == "/api/speech":
@@ -354,7 +360,11 @@ class Handler(BaseHTTPRequestHandler):
                     user_text = result.get("heard") if audio else text
                     if not user_text:
                         user_text = {"english": "Help in English", "hint": "Un indice", "simplify": "Plus simple"}.get(action, "[Enregistrement vocal]")
+                    spoken_count = len(result["segments"])
                     mid, xp = self.store.commit_turn(session["id"], user_text, result, action, metrics)
+                    # The verified completion is saved and spoken exactly once.
+                    for index, segment in enumerate(result["segments"][spoken_count:], spoken_count):
+                        emit({"type": "segment", "segment": segment, "index": index})
                     updated = self.store.session(session["id"])
                     emit({"type": "done", "result": result, "message_id": mid, "xp": xp, "metrics": metrics,
                           "just_completed": bool(updated["finished"] and not session["finished"]), "session": updated})

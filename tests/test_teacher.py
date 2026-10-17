@@ -271,14 +271,15 @@ class StoreTest(StoreCase):
         self.turn(sid)
         self.assertEqual(self.store.dashboard()["stats"]["xp"], 10)
         self.assertEqual(self.store.session(sid)["turns"], 1)
-    def test_finish_requires_three_turns_and_is_idempotent(self):
+    def test_manual_finish_preserves_unmet_goals_and_is_idempotent(self):
         sid = self.store.new_session("hello")["id"]
         with self.assertRaises(ValueError): self.store.finish(sid)
         for _ in range(3): self.turn(sid)
         first = self.store.finish(sid)
         second = self.store.finish(sid)
         self.assertEqual(first["finished"], second["finished"])
-        self.assertEqual(self.store.dashboard()["stats"]["lessons"], 1)
+        self.assertEqual(first["lesson"]["status"], "ended_early")
+        self.assertEqual(self.store.dashboard()["stats"]["lessons"], 0)
         self.turn(sid, "continue")
         self.assertEqual(self.store.session(sid)["turns"], 3)
         self.turn(sid)
@@ -291,7 +292,10 @@ class StoreTest(StoreCase):
         for _ in range(3): self.turn(sid, "hint")
         self.turn(sid, result={**REPLY, "lesson_complete": True})
         self.assertIsNone(self.store.session(sid)["finished"])
-        for _ in range(2): self.turn(sid, result={**REPLY, "lesson_complete": True})
+        for step in ("step1", "step2", "step3"):
+            self.turn(sid, result={**REPLY, "lesson_complete": True,
+                "assessment": {"rating": 5, "verdict": "correct", "clarity": "clear"},
+                "objective_evidence": {"id": step, "achieved": True, "quote": "Sto bene."}})
         self.assertEqual(self.store.session(sid)["phase"], "conversation")
         self.assertEqual(self.store.dashboard()["stats"]["lessons"], 1)
     def test_notes_replace_and_history_stays_bounded_without_data_loss(self):
@@ -401,7 +405,7 @@ class EngineTest(unittest.TestCase):
             self.assertEqual(next(stream)["type"], "segment")
             review.assert_not_called()
             result = list(stream)[-1]["result"]
-            review.assert_called_once_with("Io sono 30 anni.", "it", "fr", "gemma4:latest", "")
+            review.assert_called_once_with("Io sono 30 anni.", "it", "fr", "gemma4:latest", "", None)
             self.assertEqual(result["score"], 2)
             self.assertEqual(result["correction"], "L'âge utilise avere.")
     def test_audio_validation_rejects_wrong_format_and_long_clips(self):
@@ -601,6 +605,8 @@ class HTTPTest(StoreCase):
         for path, data in [
             ("/api/sessions/"+sid, None), ("/api/turn", {"session_id": sid, "text": "Ciao"}),
             ("/api/finish", {"session_id": sid}), ("/api/review", {"id": bid, "remembered": True}),
+            ("/api/lesson-review", {"session_id": sid, "index": 0, "remembered": True}),
+            ("/api/resume-objectives", {"session_id": sid}),
             ("/api/feedback", {"session_id": sid, "message_id": mid, "note": "Wrong profile"}),
             ("/api/message-translation", {"session_id": sid, "message_id": mid, "segment": 0, "language": "en"})]:
             with self.assertRaises(urllib.error.HTTPError): self.call(path, data, headers)

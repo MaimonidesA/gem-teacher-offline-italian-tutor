@@ -3,7 +3,7 @@ import json
 import sqlite3
 import uuid
 from datetime import date, datetime, timedelta, timezone
-from . import config
+from . import config, lessons
 from .curriculum import BY_ID
 from .learning import clean_assessment, compact_notes
 
@@ -49,6 +49,15 @@ class Store:
                 db.execute("ALTER TABLE sessions ADD COLUMN mode TEXT NOT NULL DEFAULT 'lesson'")
             if "subject" not in columns:
                 db.execute("ALTER TABLE sessions ADD COLUMN subject TEXT NOT NULL DEFAULT ''")
+            if "lesson" not in columns:
+                db.execute("ALTER TABLE sessions ADD COLUMN lesson TEXT NOT NULL DEFAULT '{}'")
+            # Preserve old completions without inventing evidence for them.
+            for row in db.execute("SELECT * FROM sessions WHERE mode='lesson' AND lesson='{}'").fetchall():
+                plan = lessons.new_plan(row["topic"], row["level"], row["target"])
+                if row["finished"]:
+                    plan["status"] = "legacy"
+                    plan["recap"] = compact_notes(json.loads(row["notes"]))
+                db.execute("UPDATE sessions SET lesson=? WHERE id=?", (json.dumps(plan, ensure_ascii=False), row["id"]))
 
     def connect(self):
         db = sqlite3.connect(self.path, timeout=15)
@@ -90,6 +99,7 @@ class Store:
             initial_base = result["base"]
             result["base"] = self.settings()["base"]
             result["notes"] = compact_notes(json.loads(result["notes"]))
+            result["lesson"] = lessons.read_plan(result)
             result["message_count"] = db.execute("SELECT COUNT(*) FROM messages WHERE session_id=?", (sid,)).fetchone()[0]
             result["messages"] = list(reversed([dict(r) for r in db.execute(
                 "SELECT * FROM messages WHERE session_id=? ORDER BY created DESC,rowid DESC LIMIT ?", (sid, limit))]))
@@ -110,8 +120,9 @@ class Store:
         prefs = self.settings()
         sid = uuid.uuid4().hex
         with self.connect() as db:
-            db.execute("INSERT INTO sessions(id,topic,target,base,level,started,mode,subject) VALUES(?,?,?,?,?,?,?,?)",
-                       (sid, topic, prefs["target"], prefs["base"], prefs["level"], now(), mode, subject.strip() if mode == "coffee" else ""))
+            plan = lessons.new_plan(topic, prefs["level"], prefs["target"]) if mode == "lesson" else {}
+            db.execute("INSERT INTO sessions(id,topic,target,base,level,started,mode,subject,lesson) VALUES(?,?,?,?,?,?,?,?,?)",
+                       (sid, topic, prefs["target"], prefs["base"], prefs["level"], now(), mode, subject.strip() if mode == "coffee" else "", json.dumps(plan, ensure_ascii=False)))
         return self.session(sid)
 
     def commit_turn(self, sid, user_text, result, action, metrics):
@@ -146,6 +157,20 @@ class Store:
                     notes["practice"] = list(dict.fromkeys([result["correction"][:120], *notes["practice"]]))[:3]
             notes = compact_notes(notes)
             result["memory"] = notes
+            plan = lessons.read_plan(session)
+            achieved = lessons.update_plan(plan, result, user_text, action, session["turns"] + 1, result["base"])
+            result["lesson_complete"] = achieved
+            if achieved:
+                plan["status"] = "achieved"
+                plan["recap"] = notes
+                result["segments"].append(lessons.completion_segment(session["target"]))
+                db.execute("UPDATE sessions SET finished=?,summary=? WHERE id=?", (now(), "Objectifs atteints", sid))
+            elif plan and plan["status"] == "active" and action in ("start", "reply"):
+                # Give the next unfinished task after the independent check,
+                # so role-play questions cannot keep the learner on a passed task.
+                result["segments"].append(lessons.task_segment(plan, result["base"]))
+            if plan:
+                db.execute("UPDATE sessions SET lesson=? WHERE id=?", (json.dumps(plan, ensure_ascii=False), sid))
             db.execute("INSERT INTO messages VALUES(?,?,?,?,?,?)", (mid, sid, "assistant",
                        "\n".join(x["text"] for x in result["segments"]), json.dumps(result, ensure_ascii=False), now()))
             db.execute("UPDATE sessions SET turns=turns+?,xp=xp+?,difficulty=MAX(-3,MIN(3,difficulty+?)) WHERE id=?",
@@ -156,15 +181,6 @@ class Store:
             db.execute("UPDATE sessions SET notes=? WHERE id=?", (json.dumps(notes, ensure_ascii=False), sid))
             db.execute("INSERT OR REPLACE INTO learner_notes VALUES(?,?,?,?)",
                        (session["target"], sid, json.dumps(notes, ensure_ascii=False), now()))
-            # Completing the guided objective changes phase, never closes chat.
-            if (session["mode"] == "lesson" and award and not session["finished"] and session["turns"] + 1 >= 3
-                    and result.get("lesson_complete") is True and score >= 2):
-                recent = [json.loads(r[0]) for r in db.execute(
-                    "SELECT payload FROM messages WHERE session_id=? AND role='assistant' ORDER BY created DESC,rowid DESC LIMIT 16", (sid,))]
-                scores = [r.get("score", 0) for r in recent if r.get("action") == "reply"][:4]
-                if sum(s >= 2 for s in scores) >= 3:
-                    db.execute("UPDATE sessions SET finished=?,summary=? WHERE id=?",
-                               (now(), "Objectif travaillé · " + notes["summary"][:250], sid))
         return mid, award
 
     def finish(self, sid):
@@ -173,14 +189,43 @@ class Store:
             raise ValueError("Le salon café reste ouvert : quittez-le et reprenez quand vous voulez.")
         if session["finished"]:
             return session
-        if session["turns"] < 3:
-            raise ValueError("Échangez au moins trois réponses avant de valider cette leçon.")
-        scores = [m["payload"].get("score", 2) for m in session["messages"]
-                  if m["role"] == "assistant" and m["payload"].get("action") == "reply"]
-        mean = sum(scores) / max(1, len(scores))
-        summary = "À revoir doucement" if mean < 1.6 else "Prêt à aller plus loin" if mean >= 2.8 else "Continuez à pratiquer"
+        if session["turns"] < 1:
+            raise ValueError("Essayez une réponse avant de terminer cette leçon.")
+        plan = session["lesson"]
+        plan.update(status="ended_early", recap=session["notes"])
         with self.connect() as db:
-            db.execute("UPDATE sessions SET finished=?,summary=? WHERE id=? AND finished IS NULL", (now(), summary, sid))
+            db.execute("UPDATE sessions SET finished=?,summary=?,lesson=? WHERE id=? AND finished IS NULL",
+                       (now(), "Séance terminée · objectifs à reprendre", json.dumps(plan, ensure_ascii=False), sid))
+        return self.session(sid)
+
+    def resume_objectives(self, sid):
+        session = self.session(sid)
+        if not session["lesson"] or session["lesson"]["status"] != "ended_early":
+            raise ValueError("Cette leçon n’a pas d’objectifs interrompus.")
+        plan = session["lesson"]
+        plan.update(status="active", recap={})
+        with self.connect() as db:
+            db.execute("UPDATE sessions SET finished=NULL,summary='',lesson=? WHERE id=?", (json.dumps(plan, ensure_ascii=False), sid))
+        return self.session(sid)
+
+    def review_lesson(self, sid, index, remembered):
+        with self.connect() as db:
+            row = db.execute("SELECT * FROM sessions WHERE id=?", (sid,)).fetchone()
+            if not row:
+                raise ValueError("Cette leçon est introuvable.")
+            plan = lessons.read_plan(row)
+            if not plan or type(index) is not int or not 0 <= index < len(plan["vocabulary"]) or type(remembered) is not bool:
+                raise ValueError("Expression ou réponse de révision incorrecte.")
+            item = plan["vocabulary"][index]
+            # Repeated button presses/retries do not inflate a day's practice count.
+            today = date.today().isoformat()
+            if item.get("reviewed") != today:
+                item["reviews"] = item.get("reviews", 0) + 1
+                item["reviewed"] = today
+                item["remembered"] = remembered
+            elif not remembered:
+                item["remembered"] = False
+            db.execute("UPDATE sessions SET lesson=? WHERE id=?", (json.dumps(plan, ensure_ascii=False), sid))
         return self.session(sid)
 
     def dashboard(self):
@@ -188,10 +233,14 @@ class Store:
         target = prefs["target"]
         with self.connect() as db:
             sessions = [dict(r) for r in db.execute("SELECT * FROM sessions WHERE target=? ORDER BY started DESC LIMIT 100", (target,))]
-            lesson_count = db.execute("SELECT COUNT(*) FROM sessions WHERE target=? AND mode='lesson' AND finished IS NOT NULL", (target,)).fetchone()[0]
-            completed = [r[0] for r in db.execute("SELECT DISTINCT topic FROM sessions WHERE target=? AND mode='lesson' AND finished IS NOT NULL", (target,))]
+            completed_rows = db.execute("""SELECT topic,COUNT(*) AS total FROM sessions
+                WHERE target=? AND mode='lesson' AND finished IS NOT NULL
+                AND json_extract(lesson,'$.status') IN ('achieved','legacy') GROUP BY topic""", (target,)).fetchall()
+            lesson_count = sum(r["total"] for r in completed_rows)
+            completed = [r["topic"] for r in completed_rows]
             for session in sessions:
                 session["notes"] = compact_notes(json.loads(session["notes"]))
+                session["lesson"] = lessons.summary(lessons.read_plan(session))
             books = [dict(r) for r in db.execute("SELECT * FROM bookmarks WHERE target=? ORDER BY created DESC", (target,))]
             activity = [dict(r) for r in db.execute("SELECT * FROM activity WHERE target=? ORDER BY day", (target,))]
         days = {r["day"]: r["xp"] for r in activity}

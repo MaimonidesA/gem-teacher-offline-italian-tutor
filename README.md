@@ -242,12 +242,37 @@ time, as before.
   temporary aid; it does not change your saved support-language choice. You can
   also change the same preference in settings. Switching keeps your current chat,
   progress and unsent draft. Earlier messages remain in their original language.
-- A completed learner reply earns 10 XP. Greetings and help requests do not.
-  After at least three replies, **Valider et continuer** completes the guided
-  lesson and keeps the same chat and microphone available. Sofia can also mark
-  the objective complete after demonstrated progress. Completion is shown in a
-  banner; it never closes the conversation. Failed or incomplete generations
-  earn no XP. Practice streaks follow the computer's local date.
+- A completed learner reply earns 10 XP; lesson openings and help actions do not.
+  Every guided lesson shows **three concrete objectives** above the conversation.
+  The existing phrase reviewer also checks the current objective, using a quote
+  from your actual reply. Clear meaning with small errors can count; unrelated
+  answers, hints, and unavailable feedback do not. These remain model judgments,
+  not certification. The app gives the next unfinished task after the review,
+  so the role-play cannot keep asking for variants of an already completed task.
+  Once all goals are demonstrated, the teacher **announces completion aloud**
+  (when automatic speech is enabled), saves the recap, and offers continued chat,
+  the recap and vocabulary, or the next unexplored topic. Open-microphone mode
+  pauses at this milestone; you can turn it back on to continue talking.
+- **Finish this session / Terminer la séance** saves an early stopping point
+  after your first reply. Unmet goals remain visible and do not count as a
+  successful lesson. **Resume the goals / Reprendre les objectifs** reopens
+  that same lesson and keeps its checked goals. Completion and vocabulary review
+  never add extra XP. Failed or incomplete generations earn no XP. Practice
+  streaks follow the computer's local date. Previous lesson completions retain
+  their credit and are labelled as predating detailed objective tracking.
+- Each Italian lesson includes a short **grammar break**, with an example tied
+  to the topic and the session's working level (A0/A1 or A2 and above). Examples
+  include singular/plural forms, articles, polite requests, agreement, and tenses.
+  Both French and English explanations are available immediately, offline.
+- **My notebook → My lessons & vocabulary** keeps each lesson's recap, evidence,
+  grammar note and up to **12 topic or conversation expressions**. Practise them
+  with reveal-and-recall cards, listen to them, or save individual expressions to
+  the notebook's spaced reviews. Lesson-card practice records remembered/needs
+  practice per day without awarding XP. Vocabulary and the completion recap stay
+  fixed when you continue chatting; the conversation's separate notes keep
+  updating. All lesson resources belong to the selected learner profile.
+  No extra model inference is needed for checklists, grammar cards, completion
+  announcements, recaps, or vocabulary practice.
 - Each new learner reply receives a written feedback card beneath the sentence:
   a score out of 5, meaning clarity, a corrected phrase when needed, and a short
   French explanation (or English with English as the support language). Correct
@@ -260,7 +285,8 @@ time, as before.
   do not change when listening, and the original written feedback stays intact.
 - **Le fil avec Sofia** shows a compact summary, strengths, points to revisit and
   a next practice step. Notes carry into later lessons and update as you talk.
-  Resume completed lessons directly from the home page or progress history.
+  Resume completed conversations from progress history or the lesson recap.
+  The home page prioritizes unfinished lessons and unexplored topics.
 - Sofia adjusts task difficulty using recent responses and carries relevant
   corrections into later lessons. A lesson can suggest a different working
   level; you choose whether to adopt it. These are practice estimates, not CEFR
@@ -464,6 +490,21 @@ learner preferences, a real Gemma identity reply, and 320–1440 pixel layouts.
 Run it with the same `PLAYWRIGHT_MODULE` and `CHROMIUM_PATH` variables as the other
 browser checks. The unittest suite also verifies cache separation between voices,
 unchanged progress after replay, and rejection of unknown teacher IDs.
+
+The lesson-goal and vocabulary checks use an isolated server on port 8773:
+
+```bash
+PARLIAMO_DATA=/tmp/parliamo-lessons-validation PARLIAMO_PORT=8773 ./start_teacher.sh --no-browser
+python3 scripts/live_lessons.py --url http://127.0.0.1:8773
+node scripts/browser_lessons.cjs  # with PLAYWRIGHT_MODULE and CHROMIUM_PATH set
+PARLIAMO_DATA=/tmp/parliamo-lessons-validation PARLIAMO_PORT=8773 ./stop_teacher.sh
+```
+
+The live check creates its own test learner. It exercises unrelated replies,
+all three café goals, the spoken completion, continued conversation with a frozen
+recap, and early finishing without false completion credit. Browser checks cover
+French/English goals, listening, vocabulary practice saved across reloads,
+resuming unfinished goals, next-lesson navigation, and phone widths down to 320px.
 
 ## Technical references and attribution
 
